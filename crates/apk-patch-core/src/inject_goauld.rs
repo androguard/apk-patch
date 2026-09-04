@@ -211,6 +211,97 @@ pub fn apply_goauld_inject(project: &Path, agent_so: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Mutate a VFS project: pack agent `.so`, loader DEX, provider, doNotCompress.
+pub fn apply_goauld_inject_vfs(
+    vfs: &mut dyn apk_patch_vfs::Vfs,
+    project: &str,
+    agent_so: &[u8],
+) -> Result<()> {
+    use apk_patch_vfs::{join_vfs, parent_vfs};
+
+    let dest_so = join_vfs(project, &format!("lib/{AGENT_ABI_DIR}/{AGENT_SO_NAME}"));
+    if let Some(parent) = parent_vfs(&dest_so) {
+        vfs.create_dir_all(&parent)
+            .map_err(|e| InjectError::Inject(e.to_string()))?;
+    }
+    vfs.write(&dest_so, agent_so)
+        .map_err(|e| InjectError::Inject(e.to_string()))?;
+    info!("I: packed agent → lib/{AGENT_ABI_DIR}/{AGENT_SO_NAME}");
+
+    let dex_name = next_free_dex_name_vfs(vfs, project)?;
+    let dex_path = join_vfs(project, &dex_name);
+    vfs.write(&dex_path, GOAULD_LOADER_DEX)
+        .map_err(|e| InjectError::Inject(e.to_string()))?;
+    info!("I: wrote loader {dex_path}");
+
+    let manifest_path = join_vfs(project, "AndroidManifest.xml");
+    if !vfs.is_file(&manifest_path) {
+        return Err(InjectError::Inject(
+            "AndroidManifest.xml missing in project".into(),
+        ));
+    }
+    let xml = vfs
+        .read_to_string(&manifest_path)
+        .map_err(|e| InjectError::Inject(e.to_string()))?;
+    let patched = insert_goauld_loader_provider(&xml);
+    vfs.write(&manifest_path, patched.as_bytes())
+        .map_err(|e| InjectError::Inject(e.to_string()))?;
+    info!("I: registered goauld.inject.LoaderProvider in manifest");
+
+    let meta_path = join_vfs(project, META_FILENAME);
+    let mut meta = ApkToolMeta::from_yaml(
+        &vfs
+            .read_to_string(&meta_path)
+            .map_err(|e| InjectError::Inject(e.to_string()))?,
+    )?;
+    if !meta.doNotCompress.iter().any(|e| e == "so") {
+        meta.doNotCompress.push("so".into());
+        vfs.write(&meta_path, meta.to_yaml()?.as_bytes())
+            .map_err(|e| InjectError::Inject(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
+fn next_free_dex_name_vfs(vfs: &dyn apk_patch_vfs::Vfs, project: &str) -> Result<String> {
+    use apk_patch_vfs::join_vfs;
+
+    let mut used = std::collections::HashSet::new();
+    if let Ok(entries) = vfs.read_dir(project) {
+        for entry in entries {
+            if is_classes_dex_name(&entry.name) {
+                used.insert(entry.name);
+            }
+        }
+    }
+    let original = join_vfs(project, "original");
+    if vfs.is_dir(&original) {
+        if let Ok(entries) = vfs.read_dir(&original) {
+            for entry in entries {
+                if is_classes_dex_name(&entry.name) {
+                    used.insert(entry.name);
+                }
+            }
+        }
+    }
+    if let Ok(dirs) = apk_patch_dex::list_dex_dirs_vfs(vfs, project) {
+        for d in dirs {
+            used.insert(d.apk_dex_name);
+        }
+    }
+
+    if !used.contains("classes.dex") {
+        return Ok("classes.dex".into());
+    }
+    for n in 2u32..10_000 {
+        let name = format!("classes{n}.dex");
+        if !used.contains(&name) {
+            return Ok(name);
+        }
+    }
+    Err(InjectError::Inject("no free classesN.dex slot".into()))
+}
+
 fn next_free_dex_name(project: &Path) -> Result<String> {
     let mut used = std::collections::HashSet::new();
     for entry in std::fs::read_dir(project)? {

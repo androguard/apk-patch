@@ -7,5 +7,6 @@ license.workspace = true
 
 [dependencies]
 apk-patch-meta = { path = "../apk-patch-meta" }
+apk-patch-vfs = { path = "../apk-patch-vfs" }
 thiserror = { workspace = true }
 walkdir = { workspace = true }

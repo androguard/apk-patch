@@ -95,7 +95,7 @@ This is **not** smali syntax. It is a simpler, Androguard-native format tied dir
 
 See [DEX-TXT.md](./DEX-TXT.md) for the format specification.
 
-**Phase 1 implementation note:** dex-txt emit/parse/assemble lives in `apk-patch-dex` (not `dex-parser/dex/txt/`). Instruction roundtrip uses hex bytes embedded in dex-txt lines; `dex-parser/dex/write.rs` provides `patch_code_insns()` and `fix_checksums()` for same-size in-place patching.
+**Phase 1 implementation note:** dex-txt emit/parse/assemble lives in `apk-patch-dex`. Assembly builds a **new DEX from scratch** via `dex-parser::DexBuilder` (mnemonic + operands are authoritative). Hex on emit lines is comment-only; payloads use `.hex` raw bytes. `dex-bytecode` provides full mnemonic encode; `replace_code_insns` remains available for low-level patches.
 
 ### On-disk layout
 
@@ -198,30 +198,31 @@ Same naming rules as Apktool, different prefix (`dex_` instead of `smali_`).
 
 ---
 
-### Phase 1 — DEX text decode/build ✅ (core complete)
+### Phase 1 — DEX text decode/build ✅ (editable assemble-from-scratch)
 
-**Deliverable:** Edit dex-txt, rebuild, installable signed APK.
+**Deliverable:** Edit dex-txt (mnemonics / structure), rebuild, installable signed APK.
 
-- [x] **`apk-patch-dex`** — emit dex-txt from parsed DEX (via `dex-bytecode` disassembly)
-- [x] **`apk-patch-dex`** — parse dex-txt back to instruction patches
-- [x] **`dex-parser/dex/write.rs`** — `patch_code_insns()`, `fix_checksums()`
-- [ ] **`dex-bytecode`** — complete instruction encoder for all Dalvik formats (deferred; hex roundtrip + variable-size patch via `replace_code_insns`)
+- [x] **`apk-patch-dex`** — emit mnemonic-first labeled dex-txt (hex comments; `.hex` for payloads)
+- [x] **`apk-patch-dex`** — parse AST and assemble via `DexBuilder` (add/remove class/method/field)
+- [x] **`dex-parser`** — `DexBuilder` + `patch_code_insns` / `fix_checksums`
+- [x] **`dex-bytecode`** — mnemonic encode for standard Dalvik formats + encode↔decode matrix tests
 - [x] Decode: multi-dex → `dex*` dirs; `-a`, `-s`, `--no-debug-info` flags
 - [x] Decode: `-j` parallel disassembly (rayon over class defs)
-- [x] Build: dex-txt dir → `.dex` via original patch; raw dex passthrough with `-s`
-- [x] Build: `-j` parallel dex-txt parsing (rayon); DEX patching sequential by code_off
+- [x] Build: dex-txt dir → **new** `.dex` from text; raw dex passthrough with `-s`
+- [x] Build: `-j` parallel dex-txt parsing (rayon)
 - [x] Reject odex with clear error
 - [ ] API level inferred from dex opcodes (Apktool 3.x behavior)
 - [x] Sign rebuilt APK automatically
-- [x] Tests: edit dex-txt → build → verify DEX structure + signature
+- [x] Tests: mnemonic edit, structural add/remove, try/catch, TestActivity emit→assemble
 
-**dex-txt insn format (Phase 1):**
+**dex-txt insn format:**
 
 ```
-    00000000: 0e00          return-void
+    :L_00000000
+    return-void  # 0e00
 ```
 
-Hex bytes enable in-place patching; variable-size edits resize `code_item` via `dex-parser::replace_code_insns` with DEX offset fixup. Mnemonic-only edits still require hex updates (or a future full encoder).
+Labels are named; offsets are computed at assemble time. Hex is comment-only (except `.hex` for switch/array payloads). Pool indices are not stable across rebuilds.
 
 ---
 
@@ -470,8 +471,8 @@ doNotCompress:
 
 | Crate | Changes |
 |-------|---------|
-| **dex-parser** | `dex/write.rs` (patch + checksum), dex-txt deferred to `apk-patch-dex` |
-| **dex-bytecode** | Full instruction encoder; dex-txt operand formatting |
+| **dex-parser** | `DexBuilder`, `dex/write.rs` (patch + checksum); dex-txt in `apk-patch-dex` |
+| **dex-bytecode** | Full instruction encoder + disasm; signed branch formatting |
 | **axml-parser** | AXML encode/decode ✅, ARSC decode ✅ (builder pending), publicize via apk-patch-framework |
 | **apkparser** | `ApkWriter`, v1/v2/v3 sign (zipalign TODO) |
 | **apk-patch** (new) | CLI, meta, project, dex, orchestration |

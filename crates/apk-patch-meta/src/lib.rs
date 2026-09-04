@@ -99,15 +99,22 @@ impl ApkToolMeta {
 
     pub fn load(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)?;
-        let mut meta: Self = serde_yaml::from_str(&raw)?;
-        migrate_from_v2(&mut meta, &raw);
+        Self::from_yaml(&raw)
+    }
+
+    pub fn from_yaml(raw: &str) -> Result<Self> {
+        let mut meta: Self = serde_yaml::from_str(raw)?;
+        migrate_from_v2(&mut meta, raw);
         Ok(meta)
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let yaml = serde_yaml::to_string(self)?;
-        std::fs::write(path, yaml)?;
+        std::fs::write(path, self.to_yaml()?)?;
         Ok(())
+    }
+
+    pub fn to_yaml(&self) -> Result<String> {
+        Ok(serde_yaml::to_string(self)?)
     }
 }
 

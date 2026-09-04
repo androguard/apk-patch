@@ -1,19 +1,21 @@
 # DEX Text Format (dex-txt)
 
-> **Status:** Draft specification. To be finalized during Phase 1 implementation.
+> **Status:** Editable assemble-from-scratch contract (mnemonic-first).
 
-dex-txt is the human-readable text representation of DEX bytecode used by apk-patch. It is emitted by and parsed into [`dex-parser`](../../dex-parser/dexparser-rs). Instruction syntax reuses [`dex-bytecode`](../../dex-bytecode/dex-bytecode) mnemonics.
+dex-txt is the human-readable text representation of DEX used by apk-patch.
+It is emitted from and assembled into DEX via [`dex-parser`](../../dex-parser/dexparser-rs)
+and [`dex-bytecode`](../../dex-bytecode/dex-bytecode).
 
-This format is **not** smali. It is a simpler, Androguard-native format tied directly to DEX structures.
+This format is **not** smali. Instruction mnemonics match dex-bytecode disassembly.
 
 ---
 
 ## Design Goals
 
-1. **Round-trip fidelity** — parse → emit → parse produces equivalent DEX.
-2. **Simple grammar** — easy to parse without a complex lexer.
-3. **Direct mapping** — one `.dex.txt` file per class, mirroring DEX class structure.
-4. **Readable edits** — suitable for manual patching and diff-friendly workflows.
+1. **Editable** — mnemonic + operands are authoritative; hex is optional commentary.
+2. **Assemble from scratch** — a DEX directory of `.dex.txt` files builds a complete DEX (no reliance on original insn hex).
+3. **Structural edits** — add/remove classes, methods, and fields by editing/deleting text files.
+4. **Round-trip fidelity** — decode → assemble preserves semantics (pool indices need not be stable).
 
 ---
 
@@ -28,19 +30,19 @@ dex/
         └── MainActivity.dex.txt
 ```
 
-Multi-dex mapping follows Apktool directory naming with a `dex_` prefix:
-
 | DEX file | Directory |
 |----------|-----------|
 | `classes.dex` | `dex/` |
 | `classes2.dex` | `dex_classes2/` |
 | `path/to/foo.dex` | `dex_path@to@foo/` |
 
+**Semantics:** every `.dex.txt` under a dex dir becomes a class in that DEX. Deleting a file removes the class. There is no silent pass-through from `original/*.dex` once assemble-from-scratch is active.
+
 ---
 
-## Grammar (draft)
+## Grammar
 
-### File header
+### File header (comments)
 
 ```
 # dex-txt
@@ -54,69 +56,93 @@ Multi-dex mapping follows Apktool directory naming with a `dex_` prefix:
 .class <access> <descriptor>
 .super <super_descriptor>
 .source <filename>              # optional
-.implements <interface>          # repeatable
+.implements <interface>         # repeatable
+
+.annotation <visibility> <type>
+    <name> = <encoded_value>
+.end annotation
 ```
 
-Access flags use Dalvik names: `public`, `private`, `protected`, `static`, `final`, `abstract`, `synthetic`, etc.
+Access flags: `public`, `private`, `protected`, `static`, `final`, `abstract`, `synthetic`, `constructor`, `declared-synchronized`, etc.
+
+Visibility: `build`, `runtime`, `system`.
 
 ### Fields
 
 ```
 .field <access> <name>:<type>
     .value <encoded_value>       # optional static initializer
+    .annotation …                # optional
 .end field
 ```
+
+`.end field` is optional when no nested directives follow.
 
 ### Methods
 
 ```
 .method <access> <name>(<params>)<return_type>
-    .registers <count>
-    .line <number>                # optional, repeatable
-    .local <reg> <name> <type>    # optional
-    .param <name>                 # optional
-    <instruction line>            # repeatable
-    .catch <type> { <range> } <handler_label>   # optional
+    .registers <count>            # or .locals <count> (→ registers = locals + ins)
+    .param <name>                 # optional (debug)
+    .line <number>                # optional (debug, before insns)
+    .local <reg> <name> <type>    # optional (debug)
+    .code
+    <label / instruction lines>
+    .array-data <width>           # fill-array-data payload
+        <values…>
+    .end array-data
+    .packed-switch <first_key>
+        :Ltarget…
+    .end packed-switch
+    .sparse-switch
+        <key> -> :Ltarget
+    .end sparse-switch
+    .end code
+    .catch <type> { :Lstart .. :Lend } :Lhandler
+    .catchall { :Lstart .. :Lend } :Lhandler
 .end method
 ```
 
-### Instructions
+`.registers` or `.locals` is **required** for methods with code (non-abstract / non-native). Assemble runs structural verification (labels, register bounds, try ranges) plus a baksmali-style register-type dataflow prover (wide pairs, conflict merges, uninit refs, invoke-result, return kinds).
 
-One instruction per line, using dex-bytecode mnemonics:
-
-```
-const/4 v0, 0
-invoke-virtual {v0, v1}, Lcom/example/Foo;->bar()V
-goto :L00000010
-:L00000010
-return-void
-```
-
-Format:
+### Instructions (mnemonic-first)
 
 ```
-[<label>:]
-<mnemonic> <operands>
+    :L_00000000
+    const/4 v0, 0
+    invoke-virtual {v0, v1}, Lcom/example/Foo;->bar()V
+    goto :L_00000010
+    :L_00000010
+    return-void
 ```
 
-- Labels use `:L` + 8-digit hex offset (matching dex-bytecode-dis output).
-- Registers: `v0`, `v1`, … or `p0`, `p1`, … (parameter registers).
-- Type descriptors: `Lcom/example/Foo;`, `[I`, `V`, etc.
-- String literals: `"hello"`.
+Rules:
+
+- One instruction per line: `[<label>:] <mnemonic> <operands…>`
+- Labels may stand alone on a line (`:L_00000010`) or prefix an instruction.
+- Label names are opaque strings starting with `:`. Emit uses `:L_` + 8-digit hex of the **original** offset for stable diffs; assemble computes new offsets.
+- Branch operands use **labels** (`goto :L_00000010`), not raw relative hex.
+- Optional trailing `# aabbcc` hex is **commentary only** (never authoritative).
+- Registers: `v0`, `v1`, … or `p0`, `p1`, … (p-registers are converted using `.registers` and prototype arity at assemble time).
+- String literals: `"hello"` (quotes). Type/method/field refs use descriptors as in disassembly:
+  - type: `Lcom/example/Foo;`
+  - field: `Lcom/example/Foo;->name:I`
+  - method: `Lcom/example/Foo;->bar(I)V`
+
+Legacy **hex-authoritative** lines (`00000000: 0e00 return-void`) remain parseable for migration; assemble prefers mnemonic form when both appear.
 
 ---
 
 ## Debug Info
 
-Included by default. Omitted when decoding with `--no-debug-info`.
-
 | Directive | Maps to |
 |-----------|---------|
-| `.line N` | debug_info line number |
-| `.local reg name type` | debug_info local variable |
-| `.param name` | debug_info parameter name |
-| `.prologue` | prologue end marker |
-| `.epilogue` | epilogue begin marker |
+| `.line N` | debug_info line |
+| `.local reg name type` | local variable |
+| `.param name` | parameter name |
+| `.prologue` / `.epilogue` | prologue/epilogue markers |
+
+Emitted when decoding without `--no-debug-info`.
 
 ---
 
@@ -127,11 +153,11 @@ Included by default. Omitted when decoding with `--no-debug-info`.
 .catchall { :Lstart .. :Lend } :Lhandler
 ```
 
+Ranges and handlers refer to instruction labels.
+
 ---
 
 ## Static Values
-
-Encoded values in field initializers and annotations:
 
 | Type | Syntax |
 |------|--------|
@@ -145,18 +171,19 @@ Encoded values in field initializers and annotations:
 
 ---
 
-## Open Questions
+## Assemble model
 
-- [ ] One file per class vs one file per DEX — **decision: one file per class**
-- [ ] Label strategy: absolute offset vs sequential `:L0`, `:L1` — **decision: absolute hex offset for round-trip stability**
-- [ ] Annotation encoding syntax
-- [ ] Hidden API / call site / method handle representation
-- [ ] Whether to include `.registers` explicitly or infer from insns
+1. Parse all `.dex.txt` → AST.
+2. Intern strings/types/protos/fields/methods from declarations + insn refs.
+3. Encode each method (labels → offsets, mnemonic → bytes).
+4. Write a fresh DEX via `DexBuilder` (pools, `class_data`, `code_item`, map, checksums).
+
+Constant-pool indices are **not** stable across rebuilds.
 
 ---
 
 ## Related
 
 - [Implementation plan](./PLAN.md)
-- [`dex-bytecode-dis`](../../dex-bytecode/dex-bytecode/bin/dis.rs) — current instruction disassembly output
-- [`dex-parser`](../../dex-parser/dexparser-rs) — DEX structure parser (emit/parse to be added)
+- [`dex-bytecode`](../../dex-bytecode/dex-bytecode) — decode + encode
+- [`dex-parser`](../../dex-parser/dexparser-rs) — parse + `DexBuilder`

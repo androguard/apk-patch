@@ -41,10 +41,16 @@ impl BuildSignConfig {
             v1: self.v1,
             v2: self.v2,
             v3: self.v3,
-            keystore: self
-                .keystore
-                .clone()
-                .unwrap_or_else(KeystoreMaterial::debug),
+            keystore: self.keystore.clone().unwrap_or_else(|| {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    KeystoreMaterial::debug_ephemeral()
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    KeystoreMaterial::debug()
+                }
+            }),
         }
     }
 }

@@ -1,5 +1,6 @@
 //! Resource table decode / build helpers (Phase 3).
 
+#[cfg(feature = "aapt2")]
 mod aapt2;
 mod build_arsc;
 mod ninepatch;
@@ -10,12 +11,13 @@ use std::path::Path;
 use axml_parser::{ARSCParser, AXMLPrinter, ArscBag, ArscResourceEntry};
 use thiserror::Error;
 
+#[cfg(feature = "aapt2")]
 pub use aapt2::{
     aapt2_compile, aapt2_link, find_aapt2, find_android_jar, Aapt2CompileOptions, Aapt2Error,
     Aapt2LinkOptions,
 };
 pub use build_arsc::{
-    build_arsc_from_project, BuildArscError, BuildArscOptions, BuildArscResult,
+    build_arsc_from_project, build_arsc_from_vfs, BuildArscError, BuildArscOptions, BuildArscResult,
 };
 pub use ninepatch::{
     decode_nine_patch_png, is_nine_patch_png, parse_nine_patch, NinePatchChunk, NinePatchError,
@@ -66,29 +68,71 @@ pub fn decode_resources_arsc(
     output_dir: &Path,
     options: &DecodeResOptions,
 ) -> Result<DecodeResResult> {
+    let (result, files) = decode_resources_arsc_files(arsc_bytes, options)?;
+    for (rel, data) in files {
+        let path = output_dir.join(&rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, data)?;
+    }
+    Ok(result)
+}
+
+/// Decode resources into an in-memory map of relative paths (`res/...`) → UTF-8/XML bytes.
+pub fn decode_resources_arsc_files(
+    arsc_bytes: &[u8],
+    options: &DecodeResOptions,
+) -> Result<(DecodeResResult, BTreeMap<String, Vec<u8>>)> {
     let parser = ARSCParser::new(arsc_bytes)?;
-    let res_dir = output_dir.join("res");
-    std::fs::create_dir_all(&res_dir)?;
+    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
 
     let public_xml = emit_public_xml(&parser);
-    let values_dir = res_dir.join("values");
-    std::fs::create_dir_all(&values_dir)?;
-    std::fs::write(values_dir.join("public.xml"), public_xml)?;
+    files.insert(
+        "res/values/public.xml".into(),
+        public_xml.into_bytes(),
+    );
 
-    emit_typed_values(&parser, &res_dir, options)?;
+    emit_typed_values_map(&parser, options, &mut files)?;
 
     if !parser.overlayables.is_empty() {
         let overlay = emit_overlayable_xml(&parser);
-        std::fs::write(values_dir.join("overlayable.xml"), overlay)?;
+        files.insert(
+            "res/values/overlayable.xml".into(),
+            overlay.into_bytes(),
+        );
     }
 
     let package_id = parser.resources.keys().next().map(|id| id >> 24);
 
-    Ok(DecodeResResult {
-        package_names: parser.get_packages_names(),
-        package_id,
-        resource_count: parser.resources.len(),
-    })
+    Ok((
+        DecodeResResult {
+            package_names: parser.get_packages_names(),
+            package_id,
+            resource_count: parser.resources.len(),
+        },
+        files,
+    ))
+}
+
+/// Write decoded resources into a VFS under `output_dir`.
+pub fn decode_resources_arsc_vfs(
+    arsc_bytes: &[u8],
+    vfs: &mut dyn apk_patch_vfs::Vfs,
+    output_dir: &str,
+    options: &DecodeResOptions,
+) -> Result<DecodeResResult> {
+    let (result, files) = decode_resources_arsc_files(arsc_bytes, options)?;
+    for (rel, data) in files {
+        let path = apk_patch_vfs::join_vfs(output_dir, &rel);
+        if let Some(parent) = apk_patch_vfs::parent_vfs(&path) {
+            vfs.create_dir_all(&parent)
+                .map_err(|e| ResourceError::Resource(e.to_string()))?;
+        }
+        vfs.write(&path, &data)
+            .map_err(|e| ResourceError::Resource(e.to_string()))?;
+    }
+    Ok(result)
 }
 
 /// Decode a binary AXML resource file (layout/menu/drawable XML) to text UTF-8.
@@ -196,12 +240,12 @@ fn values_file_for_type(type_name: &str) -> &'static str {
     }
 }
 
-fn emit_typed_values(
+fn emit_typed_values_map(
     parser: &ARSCParser,
-    res_dir: &Path,
     options: &DecodeResOptions,
+    files: &mut BTreeMap<String, Vec<u8>>,
 ) -> Result<()> {
-    let mut files: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    let mut grouped: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     let id_map = parser.id_to_java_name();
     let value_map = parser.id_to_string_value();
 
@@ -212,15 +256,13 @@ fn emit_typed_values(
         let dir = entry.config.values_dir_name();
         let file = values_file_for_type(&entry.type_name).to_string();
         if let Some(block) = format_values_block(entry, &id_map, &value_map, options) {
-            files.entry((dir, file)).or_default().push(block);
+            grouped.entry((dir, file)).or_default().push(block);
         }
     }
 
-    for ((dir_name, file_name), mut lines) in files {
+    for ((dir_name, file_name), mut lines) in grouped {
         lines.sort();
         lines.dedup();
-        let dir = res_dir.join(&dir_name);
-        std::fs::create_dir_all(&dir)?;
         let mut out = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n");
         for line in lines {
             out.push_str(&line);
@@ -229,7 +271,7 @@ fn emit_typed_values(
             }
         }
         out.push_str("</resources>\n");
-        std::fs::write(dir.join(file_name), out)?;
+        files.insert(format!("res/{dir_name}/{file_name}"), out.into_bytes());
     }
     Ok(())
 }

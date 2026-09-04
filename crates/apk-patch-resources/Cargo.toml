@@ -7,6 +7,12 @@ license.workspace = true
 
 [dependencies]
 axml-parser = { path = "../../../axml-parser" }
+apk-patch-vfs = { path = "../apk-patch-vfs" }
 thiserror = { workspace = true }
 png = "0.17"
 walkdir = { workspace = true }
+
+[features]
+default = ["aapt2"]
+# Host aapt2 process spawn (not available on WASM).
+aapt2 = []

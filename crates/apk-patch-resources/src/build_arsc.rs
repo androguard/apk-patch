@@ -415,6 +415,195 @@ fn scan_file_resources(res_dir: &Path) -> Result<Vec<(String, String, String)>> 
     Ok(out)
 }
 
+/// Build `resources.arsc` from a VFS project tree (`{project}/res/...`).
+pub fn build_arsc_from_vfs(
+    vfs: &dyn apk_patch_vfs::Vfs,
+    project: &str,
+    options: &BuildArscOptions,
+) -> Result<BuildArscResult> {
+    use apk_patch_vfs::join_vfs;
+
+    let res_dir = join_vfs(project, "res");
+    if !vfs.is_dir(&res_dir) {
+        return Err(BuildArscError::Build("missing res/ directory".into()));
+    }
+
+    let public_path = join_vfs(&res_dir, "values/public.xml");
+    let public = if vfs.is_file(&public_path) {
+        let raw = vfs
+            .read_to_string(&public_path)
+            .map_err(|e| BuildArscError::Build(e.to_string()))?;
+        parse_public_xml(&raw)?
+    } else {
+        Vec::new()
+    };
+
+    let package_id = options
+        .package_id
+        .or_else(|| public.first().map(|(id, _, _)| id >> 24))
+        .unwrap_or(0x7f);
+    let package_name = options
+        .package_name
+        .clone()
+        .unwrap_or_else(|| "app".into());
+
+    let mut by_type: BTreeMap<String, (u8, BTreeMap<u16, (String, Option<ArscBuildValue>, bool)>)> =
+        BTreeMap::new();
+
+    for (id, type_name, name) in &public {
+        if id >> 24 != package_id {
+            continue;
+        }
+        let type_id = ((id >> 16) & 0xff) as u8;
+        let entry_index = (id & 0xffff) as u16;
+        let slot = by_type
+            .entry(type_name.clone())
+            .or_insert_with(|| (type_id, BTreeMap::new()));
+        if slot.0 == 0 {
+            slot.0 = type_id;
+        }
+        slot.1.insert(entry_index, (name.clone(), None, true));
+    }
+
+    for entry in vfs
+        .read_dir(&res_dir)
+        .map_err(|e| BuildArscError::Build(e.to_string()))?
+    {
+        if !entry.is_dir || !entry.name.starts_with("values") {
+            continue;
+        }
+        for file in vfs
+            .read_dir(&entry.path)
+            .map_err(|e| BuildArscError::Build(e.to_string()))?
+        {
+            if !file.is_file {
+                continue;
+            }
+            let fname = &file.name;
+            if fname == "public.xml" || fname == "overlayable.xml" || !fname.ends_with(".xml") {
+                continue;
+            }
+            let xml = vfs
+                .read_to_string(&file.path)
+                .map_err(|e| BuildArscError::Build(e.to_string()))?;
+            for (type_name, name, value) in parse_values_xml(&xml)? {
+                let next_id = by_type
+                    .values()
+                    .map(|(id, _)| *id)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1)
+                    .max(1);
+                if let Some((_, map)) = by_type.get_mut(&type_name) {
+                    if let Some((_, slot, _)) = map.values_mut().find(|(n, _, _)| n == &name) {
+                        *slot = Some(value);
+                        continue;
+                    }
+                    let next = map.keys().next_back().map(|k| k + 1).unwrap_or(0);
+                    map.insert(next, (name, Some(value), true));
+                } else {
+                    let mut map = BTreeMap::new();
+                    map.insert(0, (name, Some(value), true));
+                    by_type.insert(type_name, (next_id, map));
+                }
+            }
+        }
+    }
+
+    for path in vfs
+        .walk_files(&res_dir)
+        .map_err(|e| BuildArscError::Build(e.to_string()))?
+    {
+        let rel = path
+            .strip_prefix(&res_dir)
+            .map(|s| s.trim_start_matches('/'))
+            .unwrap_or(path.as_str());
+        let mut parts = rel.splitn(2, '/');
+        let folder = parts.next().unwrap_or("");
+        let file = parts.next().unwrap_or("");
+        if folder.is_empty() || file.is_empty() || folder.starts_with("values") {
+            continue;
+        }
+        let type_name = folder.split('-').next().unwrap_or(folder).to_string();
+        let name = Path::new(file)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(file)
+            .trim_end_matches(".9")
+            .to_string();
+        let apk_path = format!("res/{rel}");
+        let next_id = by_type
+            .values()
+            .map(|(id, _)| *id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+            .max(1);
+        if let Some((_, map)) = by_type.get_mut(&type_name) {
+            if let Some((_, v, _)) = map.values_mut().find(|(n, _, _)| n == &name) {
+                if v.is_none() {
+                    *v = Some(ArscBuildValue::String(apk_path));
+                }
+                continue;
+            }
+            let next = map.keys().next_back().map(|k| k + 1).unwrap_or(0);
+            map.insert(next, (name, Some(ArscBuildValue::String(apk_path)), true));
+        } else {
+            let mut map = BTreeMap::new();
+            map.insert(0, (name, Some(ArscBuildValue::String(apk_path)), true));
+            by_type.insert(type_name, (next_id, map));
+        }
+    }
+
+    let mut types = Vec::new();
+    let mut entry_count = 0usize;
+    for (type_name, (type_id, entries)) in by_type {
+        let mut build_entries = Vec::new();
+        for (entry_index, (name, value, public)) in entries {
+            let value = if type_name == "id" {
+                ArscBuildValue::Bool(false)
+            } else {
+                value.unwrap_or(ArscBuildValue::Null)
+            };
+            build_entries.push(ArscBuildEntry {
+                entry_index,
+                name,
+                value,
+                public,
+            });
+            entry_count += 1;
+        }
+        types.push(ArscBuildType {
+            name: type_name,
+            type_id,
+            configs: vec![ArscBuildConfig {
+                qualifier: String::new(),
+                raw: None,
+                entries: build_entries,
+            }],
+        });
+    }
+
+    if types.is_empty() {
+        return Err(BuildArscError::Build(
+            "no resources found to encode (need public.xml and/or values*)".into(),
+        ));
+    }
+
+    let input = ArscBuildInput {
+        package_id,
+        package_name: package_name.clone(),
+        types,
+    };
+    let arsc = build_arsc(&input)?;
+    Ok(BuildArscResult {
+        arsc,
+        package_id,
+        package_name,
+        entry_count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

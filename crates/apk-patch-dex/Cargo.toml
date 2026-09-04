@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 dex-parser = { path = "../../../dex-parser/dexparser-rs" }
 dex-bytecode = { path = "../../../dex-bytecode/dex-bytecode" }
+apk-patch-vfs = { path = "../apk-patch-vfs" }
 thiserror = { workspace = true }
 walkdir = { workspace = true }
 log = { workspace = true }
@@ -20,3 +21,4 @@ parallel = ["dep:rayon"]
 [dev-dependencies]
 tempfile = "3.10"
 apkparser = { path = "../../../apk-parser/apkparser-rs" }
+walkdir = { workspace = true }

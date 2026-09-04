@@ -7,12 +7,25 @@ mod insn_merge;
 mod jobs;
 mod naming;
 mod parse;
+mod payloads;
 mod resolver;
+mod verify;
 
-pub use assemble::{assemble_dex_from_project, AssembleOptions};
-pub use emit::{emit_dex_to_dir, EmitOptions};
-pub use naming::{dex_apk_name, dex_dir_name, is_odex, list_dex_dirs, DexDirEntry};
-pub use parse::{parse_class_file, DexTxtClass, DexTxtMethod};
+pub use assemble::{
+    assemble_dex_from_project, assemble_dex_from_txt, assemble_dex_from_vfs, AssembleOptions,
+};
+pub use emit::{emit_dex_to_dir, emit_dex_to_vfs, EmitOptions};
+pub use naming::{
+    dex_apk_name, dex_dir_name, is_odex, list_dex_dirs, list_dex_dirs_vfs, DexDirEntry,
+};
+pub use parse::{
+    parse_class_file, DexTxtAnnotation, DexTxtCatch, DexTxtClass, DexTxtDebug, DexTxtField,
+    DexTxtInsn, DexTxtMethod,
+};
+pub use verify::{
+    analyze_method, locals_to_registers, registers_to_locals, verify_class, verify_method,
+    verify_method_structural, Category, RegType,
+};
 
 use thiserror::Error;
 

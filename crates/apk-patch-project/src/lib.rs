@@ -107,12 +107,41 @@ pub fn project_path(root: &Path, target: &DecodeTarget) -> PathBuf {
     }
 }
 
+/// Logical VFS path for a decode target under `root` (slash-separated).
+pub fn project_path_vfs(root: &str, target: &DecodeTarget) -> String {
+    use apk_patch_vfs::join_vfs;
+    match target {
+        DecodeTarget::Root(name) => join_vfs(root, name),
+        DecodeTarget::Res(rel) => join_vfs(&join_vfs(root, "res"), rel),
+        DecodeTarget::Assets(rel) => join_vfs(&join_vfs(root, "assets"), rel),
+        DecodeTarget::Lib(rel) => join_vfs(&join_vfs(root, "lib"), rel),
+        DecodeTarget::Original(rel) => join_vfs(&join_vfs(root, "original"), rel),
+        DecodeTarget::Unknown(rel) => join_vfs(&join_vfs(root, "unknown"), rel),
+    }
+}
+
 pub fn write_entry(root: &Path, target: &DecodeTarget, data: &[u8]) -> Result<()> {
     let path = project_path(root, target);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, data)?;
+    Ok(())
+}
+
+pub fn write_entry_vfs(
+    vfs: &mut dyn apk_patch_vfs::Vfs,
+    root: &str,
+    target: &DecodeTarget,
+    data: &[u8],
+) -> Result<()> {
+    let path = project_path_vfs(root, target);
+    if let Some(parent) = apk_patch_vfs::parent_vfs(&path) {
+        vfs.create_dir_all(&parent)
+            .map_err(|e| ProjectError::Project(e.to_string()))?;
+    }
+    vfs.write(&path, data)
+        .map_err(|e| ProjectError::Project(e.to_string()))?;
     Ok(())
 }
 
@@ -211,6 +240,122 @@ pub fn collect_build_entries(
     };
     if manifest_path.is_file() {
         let data = std::fs::read(&manifest_path)?;
+        let compress = !should_store_uncompressed("AndroidManifest.xml", &meta.doNotCompress);
+        entries.push(BuildEntry {
+            name: "AndroidManifest.xml".into(),
+            data,
+            compress,
+        });
+    }
+
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(entries)
+}
+
+/// Collect APK entries from a VFS-backed project tree.
+pub fn collect_build_entries_vfs(
+    vfs: &dyn apk_patch_vfs::Vfs,
+    project: &str,
+    meta: &ApkToolMeta,
+    assembled_dex: &std::collections::HashMap<String, Vec<u8>>,
+) -> Result<Vec<BuildEntry>> {
+    use apk_patch_vfs::join_vfs;
+
+    let mut entries = Vec::new();
+
+    for target_dir in ["", "assets", "lib", "unknown", "res"] {
+        let base = if target_dir.is_empty() {
+            project.to_string()
+        } else {
+            join_vfs(project, target_dir)
+        };
+        if !vfs.exists(&base) {
+            continue;
+        }
+        for path in vfs
+            .walk_files(&base)
+            .map_err(|e| ProjectError::Project(e.to_string()))?
+        {
+            let rel = path
+                .strip_prefix(project)
+                .map(|s| s.trim_start_matches('/'))
+                .unwrap_or(path.as_str());
+            if should_skip_on_build(rel) {
+                continue;
+            }
+            let apk_name = map_to_apk_path(rel, target_dir);
+            let data = vfs
+                .read(&path)
+                .map_err(|e| ProjectError::Project(e.to_string()))?;
+            let compress = !should_store_uncompressed(&apk_name, &meta.doNotCompress);
+            entries.push(BuildEntry {
+                name: apk_name,
+                data,
+                compress,
+            });
+        }
+    }
+
+    {
+        let original_arsc = join_vfs(project, "original/resources.arsc");
+        let root_arsc = join_vfs(project, "resources.arsc");
+        let arsc_path = if vfs.is_file(&original_arsc) {
+            original_arsc
+        } else {
+            root_arsc
+        };
+        if vfs.is_file(&arsc_path) {
+            let data = vfs
+                .read(&arsc_path)
+                .map_err(|e| ProjectError::Project(e.to_string()))?;
+            let compress = !should_store_uncompressed("resources.arsc", &meta.doNotCompress);
+            entries.push(BuildEntry {
+                name: "resources.arsc".into(),
+                data,
+                compress,
+            });
+        }
+    }
+
+    if let Ok(rd) = vfs.read_dir(project) {
+        for entry in rd {
+            if is_dex_entry(&entry.name)
+                && entry.is_file
+                && !assembled_dex.contains_key(&entry.name)
+            {
+                let data = vfs
+                    .read(&entry.path)
+                    .map_err(|e| ProjectError::Project(e.to_string()))?;
+                let compress = !should_store_uncompressed(&entry.name, &meta.doNotCompress);
+                entries.push(BuildEntry {
+                    name: entry.name,
+                    data,
+                    compress,
+                });
+            }
+        }
+    }
+
+    for (dex_name, data) in assembled_dex {
+        let compress = !should_store_uncompressed(dex_name, &meta.doNotCompress);
+        entries.push(BuildEntry {
+            name: dex_name.clone(),
+            data: data.clone(),
+            compress,
+        });
+    }
+
+    let text_manifest = join_vfs(project, "AndroidManifest.xml");
+    let original_manifest = join_vfs(project, "original/AndroidManifest.xml");
+    let manifest_path = if vfs.is_file(&text_manifest) {
+        text_manifest
+    } else {
+        original_manifest
+    };
+    if vfs.is_file(&manifest_path) {
+        let data = vfs
+            .read(&manifest_path)
+            .map_err(|e| ProjectError::Project(e.to_string()))?;
         let compress = !should_store_uncompressed("AndroidManifest.xml", &meta.doNotCompress);
         entries.push(BuildEntry {
             name: "AndroidManifest.xml".into(),

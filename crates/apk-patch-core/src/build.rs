@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
 use apk_patch_dex::{assemble_dex_from_project, list_dex_dirs, AssembleOptions};
-use apk_patch_framework::{get_framework_apk, FrameworkOptions};
 use apk_patch_meta::{ApkToolMeta, META_FILENAME};
 use apk_patch_project::{collect_build_entries, BuildEntry};
+#[cfg(feature = "aapt2")]
+use apk_patch_framework::{get_framework_apk, FrameworkOptions};
+#[cfg(feature = "aapt2")]
 use apk_patch_resources::{
-    aapt2_compile, aapt2_link, build_arsc_from_project, find_aapt2, find_android_jar,
-    Aapt2CompileOptions, Aapt2LinkOptions, BuildArscOptions,
+    aapt2_compile, aapt2_link, find_aapt2, find_android_jar, Aapt2CompileOptions, Aapt2LinkOptions,
 };
+use apk_patch_resources::{build_arsc_from_project, BuildArscOptions};
 use apk_patch_sign::{sign_build_output, BuildSignConfig};
 use apkparser::{ApkWriter, ZipEntry};
 use axml_parser::encode_xml;
@@ -213,14 +215,21 @@ pub fn build_project(project: &Path, options: &BuildOptions) -> Result<BuildResu
 
     if can_rebuild && options.use_aapt2 {
         info!("I: rebuilding resources with aapt2…");
-        match try_aapt2_rebuild(project, &meta, options, &patched_manifest_path) {
-            Ok(Some(entries)) => {
-                aapt2_entries = entries;
-                used_aapt2 = true;
-                info!("I: aapt2 compile/link succeeded");
+        #[cfg(feature = "aapt2")]
+        {
+            match try_aapt2_rebuild(project, &meta, options, &patched_manifest_path) {
+                Ok(Some(entries)) => {
+                    aapt2_entries = entries;
+                    used_aapt2 = true;
+                    info!("I: aapt2 compile/link succeeded");
+                }
+                Ok(None) => warn!("W: aapt2 not available; trying pure-Rust ARSC builder"),
+                Err(e) => warn!("W: aapt2 failed ({e}); trying pure-Rust ARSC builder"),
             }
-            Ok(None) => warn!("W: aapt2 not available; trying pure-Rust ARSC builder"),
-            Err(e) => warn!("W: aapt2 failed ({e}); trying pure-Rust ARSC builder"),
+        }
+        #[cfg(not(feature = "aapt2"))]
+        {
+            warn!("W: aapt2 feature disabled; trying pure-Rust ARSC builder");
         }
     }
 
@@ -527,6 +536,7 @@ fn encode_pack_entry(entry: &BuildEntry, copy_original: bool) -> Result<Vec<u8>>
     Ok(entry.data.clone())
 }
 
+#[cfg(feature = "aapt2")]
 fn try_aapt2_rebuild(
     project: &Path,
     meta: &ApkToolMeta,
@@ -628,6 +638,7 @@ fn try_aapt2_rebuild(
     Ok(Some(out))
 }
 
+#[cfg(feature = "aapt2")]
 fn looks_binary_axml(data: &[u8]) -> bool {
     data.len() >= 2 && u16::from_le_bytes([data[0], data[1]]) == 0x0003
 }

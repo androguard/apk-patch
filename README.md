@@ -4,6 +4,25 @@ Pure Rust APK pack/unpack/patch tool — functional equivalent of [Apktool](http
 
 Code is stored as **[dex-txt](./docs/DEX-TXT.md)** (not smali). Builds produce a **signed** APK by default (v1 + v2 + v3). Resources rebuild with a **pure-Rust ARSC builder**; aapt2 is optional.
 
+## Library: in-memory / WASM (`apk-patch-vfs`)
+
+CLI Path APIs are unchanged. Additive APIs for browsers and embedding:
+
+- `apk-patch-vfs` — `Vfs` trait, `StdFs` (native), `MemVfs` (in-memory)
+- `decode_apk_vfs` / `build_project_vfs` — VFS-backed decode/build
+- `decode_apk_bytes` / `build_project_bytes` / `inject_goauld_bytes` — MemVfs convenience
+
+Cargo features on `apk-patch-core` (defaults preserve CLI behavior):
+
+| Feature | Default | Notes |
+|---------|---------|--------|
+| `parallel` | on | rayon in dex-txt; disable for WASM |
+| `aapt2` | on | host `aapt2` spawn; disable for WASM |
+| `native-fs` | on | `StdFs` / walkdir |
+| `goauld` | on | host agent path helpers |
+
+WASM / browser consumers should depend with `default-features = false`. Signing uses an embedded debug key on `wasm32` (no `ring`/`rcgen`).
+
 ## Install / build
 
 From this repo (path-deps expect sibling Androguard crates under `../`):
@@ -23,6 +42,8 @@ Global flags: `-q` / `--quiet`, `-v` / `--verbose`.
 cargo run -p apk-patch-cli -- decode app.apk -f -o out/
 
 # Edit dex-txt under out/dex/, AndroidManifest.xml, res/, …
+# Instructions are mnemonic-first (hex after # is optional commentary).
+# Add/remove a class by adding/deleting a `.dex.txt` file; same for methods/fields.
 
 # Rebuild → signed APK at out/dist/<apkFileName>
 cargo run -p apk-patch-cli -- build out/ -f

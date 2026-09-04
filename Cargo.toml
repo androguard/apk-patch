@@ -7,6 +7,7 @@ members = [
     "crates/apk-patch-framework",
     "crates/apk-patch-resources",
     "crates/apk-patch-sign",
+    "crates/apk-patch-vfs",
     "crates/apk-patch-core",
     "crates/apk-patch-cli",
 ]

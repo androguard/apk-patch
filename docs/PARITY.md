@@ -14,6 +14,7 @@ Tracking apk-patch progress against [Apktool 3.x](https://github.com/iBotPeaches
 |---------|---------|-----------|
 | Code format | smali | dex-txt |
 | Code directories | `smali/` | `dex/` |
+| Full baksmali verifier / `.locals` default | ClassPath + MethodAnalyzer | CFG register-type dataflow (smali categories); `.registers` default, `.locals` accepted |
 | Build signing | unsigned (manual) | **signed by default** |
 | `--no-sign` flag | N/A | outputs unsigned APK |
 
@@ -98,6 +99,7 @@ Tracking apk-patch progress against [Apktool 3.x](https://github.com/iBotPeaches
 | Output dir existence check + `-f` overwrite | ☑ |
 | Parallel jobs (`-j`) | ☑ |
 | dex-txt disassembly (default) | ☑ |
+| dex-txt annotations / `.value` / payloads / try-catch | ☑ |
 | Raw dex copy (`-s`) | ☑ |
 | All-dex disassembly (`-a`) | ☑ |
 | Resource decode (full) | ◐ values*/overlayable + binary XML; ARSC encode pending |
