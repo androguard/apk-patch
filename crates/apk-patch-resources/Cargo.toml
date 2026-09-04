@@ -1,0 +1,12 @@
+[package]
+name = "apk-patch-resources"
+description = "ARSC / res tree decode helpers for apk-patch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axml-parser = { path = "../../../axml-parser" }
+thiserror = { workspace = true }
+png = "0.17"
+walkdir = { workspace = true }

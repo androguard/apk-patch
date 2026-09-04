@@ -1,0 +1,19 @@
+[package]
+name = "apk-patch-cli"
+description = "CLI for apk-patch — Apktool-compatible APK pack/unpack/patch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "apk-patch"
+path = "src/main.rs"
+
+[dependencies]
+apk-patch-core = { path = "../apk-patch-core" }
+apk-patch-sign = { path = "../apk-patch-sign" }
+apk-patch-framework = { path = "../apk-patch-framework" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+simple_logger = { workspace = true }

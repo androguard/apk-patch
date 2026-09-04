@@ -1,0 +1,15 @@
+[package]
+name = "apk-patch-framework"
+description = "Framework APK install/list/clean/publicize for apk-patch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+apkparser = { workspace = true }
+axml-parser = { path = "../../../axml-parser" }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"

@@ -1,0 +1,22 @@
+[package]
+name = "apk-patch-dex"
+description = "DEX text (dex-txt) emit, parse, and assemble for apk-patch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dex-parser = { path = "../../../dex-parser/dexparser-rs" }
+dex-bytecode = { path = "../../../dex-bytecode/dex-bytecode" }
+thiserror = { workspace = true }
+walkdir = { workspace = true }
+log = { workspace = true }
+rayon = { version = "1.10", optional = true }
+
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]
+
+[dev-dependencies]
+tempfile = "3.10"
+apkparser = { path = "../../../apk-parser/apkparser-rs" }

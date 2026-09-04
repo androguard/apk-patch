@@ -1,0 +1,11 @@
+[package]
+name = "apk-patch-project"
+description = "Apktool-compatible project layout and file classification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+apk-patch-meta = { path = "../apk-patch-meta" }
+thiserror = { workspace = true }
+walkdir = { workspace = true }

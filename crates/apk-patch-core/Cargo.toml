@@ -1,0 +1,29 @@
+[package]
+name = "apk-patch-core"
+description = "Decode/build orchestration for apk-patch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+apk-patch-meta = { path = "../apk-patch-meta" }
+apk-patch-project = { path = "../apk-patch-project" }
+apk-patch-sign = { path = "../apk-patch-sign" }
+apk-patch-dex = { path = "../apk-patch-dex" }
+apk-patch-framework = { path = "../apk-patch-framework" }
+apk-patch-resources = { path = "../apk-patch-resources" }
+axml-parser = { path = "../../../axml-parser" }
+apkparser = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+apk-patch-sign = { path = "../apk-patch-sign" }
+apk-patch-framework = { path = "../apk-patch-framework" }
+apk-patch-meta = { path = "../apk-patch-meta" }
+apkparser = { workspace = true }
+tempfile = "3.10"
+dex-parser = { path = "../../../dex-parser/dexparser-rs" }
+walkdir = { workspace = true }
