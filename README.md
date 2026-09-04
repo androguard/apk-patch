@@ -196,6 +196,13 @@ cargo run -p apk-patch-cli -- inject-goauld app.apk \
   --keep-project /tmp/app-goauld-project
 ```
 
+Smoke against the bundled hello APK (needs `adb` + agent `.so`):
+
+```bash
+./scripts/build-hello.sh
+./scripts/smoke-inject-goauld.sh
+```
+
 | Flag | Description |
 |------|-------------|
 | `-o`, `--output` | Output APK (default: `<stem>-goauld.apk` beside the input) |
@@ -209,6 +216,12 @@ cargo run -p apk-patch-cli -- inject-goauld app.apk \
 Source: `crates/apk-patch-core/assets/goauld_loader/LoaderProvider.java`. Binary: `crates/apk-patch-core/assets/goauld_loader.dex`.
 
 ```bash
+./scripts/regen-goauld-loader.sh
+```
+
+Or manually:
+
+```bash
 ANDROID_JAR="$ANDROID_HOME/platforms/android-36/android.jar"
 D8="$ANDROID_HOME/build-tools/36.1.0/d8"
 javac --release 11 -classpath "$ANDROID_JAR" -d /tmp/gl/classes \
@@ -218,6 +231,18 @@ javac --release 11 -classpath "$ANDROID_JAR" -d /tmp/gl/classes \
   /tmp/gl/classes/goauld/inject/LoaderProvider.class
 cp /tmp/gl/dex/classes.dex crates/apk-patch-core/assets/goauld_loader.dex
 ```
+
+---
+
+## Scripts & testapps
+
+| Path | Purpose |
+|------|---------|
+| `scripts/build-hello.sh` | Build `testapps/hello` → `hello.apk` |
+| `scripts/smoke-roundtrip.sh` | Decode/build roundtrip |
+| `scripts/smoke-inject-goauld.sh` | Inject + install + check `goauld` logcat |
+| `scripts/regen-goauld-loader.sh` | Rebuild embedded loader DEX |
+| `testapps/hello/` | Minimal Android app for smoke tests |
 
 ---
 
