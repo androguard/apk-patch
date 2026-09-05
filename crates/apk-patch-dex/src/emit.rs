@@ -295,10 +295,32 @@ fn emit_annotation(
     ));
     for (name_idx, val) in &item.annotation.elements {
         let name = dex.get_string(*name_idx)?;
-        let lit = format_encoded_value(dex, val);
-        out.push_str(&format!("    {name} = {lit}\n"));
+        emit_annotation_element(dex, &name, val, out, "    ")?;
     }
     out.push_str(".end annotation\n\n");
+    Ok(())
+}
+
+fn emit_annotation_element(
+    dex: &DexFile,
+    name: &str,
+    val: &dex_parser::EncodedValue,
+    out: &mut String,
+    indent: &str,
+) -> Result<()> {
+    if let dex_parser::EncodedValue::Annotation(ann) = val {
+        let ty = dex.get_type(ann.type_idx)?;
+        out.push_str(&format!("{indent}{name} = .subannotation {ty}\n"));
+        let nested = format!("{indent}    ");
+        for (name_idx, v) in &ann.elements {
+            let n = dex.get_string(*name_idx)?;
+            emit_annotation_element(dex, &n, v, out, &nested)?;
+        }
+        out.push_str(&format!("{indent}.end subannotation\n"));
+        return Ok(());
+    }
+    let lit = format_encoded_value(dex, val);
+    out.push_str(&format!("{indent}{name} = {lit}\n"));
     Ok(())
 }
 
@@ -372,15 +394,44 @@ fn emit_method(
                 }
             }
         } else {
-            let mut line = sanitize_disasm_annotation(&ins.disasm_line());
+            let mut line = ins.disasm_line();
+            // Quote/escape const-string before sanitize so binary bytes become \uXXXX
+            // rather than \xHH sprinkled into an unquoted operand.
+            line = quote_string_operands(&ins.mnemonic, &line);
+            line = sanitize_disasm_outside_strings(&line);
             line = rewrite_branch_operands_to_labels(&ins.mnemonic, ins.opcode, ins.offset, &line);
             line = rewrite_payload_ref_to_label(&ins.mnemonic, ins.opcode, ins.offset, &line);
-            line = quote_string_operands(&ins.mnemonic, &line);
             out.push_str(&format!("    {line}  # {hex}\n"));
         }
     }
 
+    // Exclusive catch ends (and rare mid-gap labels) may point past the last
+    // instruction; emit bare labels so assemble/verify can resolve them.
+    let insn_offs: std::collections::HashSet<u32> =
+        instructions.iter().map(|i| i.offset).collect();
     if let Ok(tries) = code.tries(&dex.data) {
+        let mut trailing: Vec<u32> = Vec::new();
+        for t in &tries {
+            for off in [
+                t.start_unit * 2,
+                (t.start_unit + t.insn_count as u32) * 2,
+            ] {
+                if !insn_offs.contains(&off) {
+                    trailing.push(off);
+                }
+            }
+            for (_, handler) in &t.handlers {
+                let off = handler * 2;
+                if !insn_offs.contains(&off) {
+                    trailing.push(off);
+                }
+            }
+        }
+        trailing.sort_unstable();
+        trailing.dedup();
+        for off in trailing {
+            out.push_str(&format!("    :L_{:08x}\n", off));
+        }
         for t in tries {
             let start = format!(":L_{:08x}", t.start_unit * 2);
             let end = format!(":L_{:08x}", (t.start_unit + t.insn_count as u32) * 2);
@@ -415,12 +466,50 @@ fn quote_string_operands(mnemonic: &str, disasm: &str) -> String {
     let Some((regs, s)) = disasm.split_once(',') else {
         return disasm.to_string();
     };
-    let s = s.trim();
-    if s.starts_with('"') || s.starts_with("string@") {
+    // Decoder formats `vN, {raw}`; keep leading/trailing spaces as string content.
+    let s = s.strip_prefix(' ').unwrap_or(s);
+    if s.starts_with("string@") {
         return disasm.to_string();
     }
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("{regs}, \"{escaped}\"")
+    // Raw pool string may itself start with `"` — always escape, never assume quoted.
+    format!(
+        "{}, \"{}\"",
+        regs.trim_end(),
+        dex_parser::escape_string_literal(s)
+    )
+}
+
+/// Sanitize control chars outside of `"..."` string literals.
+fn sanitize_disasm_outside_strings(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_str = false;
+    let mut escape = false;
+    for ch in s.chars() {
+        if in_str {
+            out.push(ch);
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_str = true;
+            out.push(ch);
+            continue;
+        }
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn rewrite_branch_operands_to_labels(
@@ -570,18 +659,9 @@ fn find_payload_ref_offset(
 
 /// Keep disasm annotations on one line so multi-line strings / binary junk
 /// cannot break dex-txt parsing (URLs with `:`, embedded newlines, …).
+#[allow(dead_code)]
 fn sanitize_disasm_annotation(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c.is_control() => out.push_str(&format!("\\x{:02x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
+    sanitize_disasm_outside_strings(s)
 }
 
 fn format_encoded_value(dex: &DexFile, v: &dex_parser::EncodedValue) -> String {

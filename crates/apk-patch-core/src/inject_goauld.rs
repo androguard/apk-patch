@@ -2,12 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use apk_patch_meta::{ApkToolMeta, META_FILENAME};
+use apk_patch_meta::ApkToolMeta;
 use apk_patch_sign::BuildSignConfig;
 use log::info;
 use thiserror::Error;
 
+#[cfg(feature = "native-fs")]
 use crate::build::{build_project, BuildOptions};
+#[cfg(feature = "native-fs")]
 use crate::decode::{decode_apk, DecodeOptions};
 use crate::manifest_patch::insert_goauld_loader_provider;
 
@@ -74,6 +76,7 @@ pub fn default_agent_so_path() -> PathBuf {
     PathBuf::from(DEFAULT_AGENT_REL)
 }
 
+#[cfg(feature = "native-fs")]
 fn log_agent_so(agent_so: &Path) {
     let meta = std::fs::metadata(agent_so).ok();
     let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
@@ -96,6 +99,7 @@ fn log_agent_so(agent_so: &Path) {
     info!("I:   load via = System.loadLibrary(\"goauld_agent\")");
 }
 
+#[cfg(feature = "native-fs")]
 fn agent_so_source(agent_so: &Path) -> String {
     if let Ok(env) = std::env::var(ENV_AGENT) {
         if !env.is_empty() && Path::new(&env) == agent_so {
@@ -108,6 +112,7 @@ fn agent_so_source(agent_so: &Path) -> String {
     "--agent".into()
 }
 
+#[cfg(feature = "native-fs")]
 /// Decode → inject SO + loader DEX + provider → build → signed APK.
 pub fn inject_goauld(apk: &Path, opts: &InjectGoauldOptions) -> Result<PathBuf> {
     if !opts.agent_so.is_file() {
@@ -174,6 +179,7 @@ pub fn inject_goauld(apk: &Path, opts: &InjectGoauldOptions) -> Result<PathBuf> 
     Ok(built.output_apk)
 }
 
+#[cfg(feature = "native-fs")]
 /// Mutate an already-decoded project: SO, loader DEX, manifest provider, doNotCompress.
 pub fn apply_goauld_inject(project: &Path, agent_so: &Path) -> Result<()> {
     let lib_dir = project.join("lib").join(AGENT_ABI_DIR);
@@ -201,11 +207,14 @@ pub fn apply_goauld_inject(project: &Path, agent_so: &Path) -> Result<()> {
     std::fs::write(&manifest_path, patched)?;
     info!("I: registered goauld.inject.LoaderProvider in manifest");
 
-    let meta_path = project.join(META_FILENAME);
+    let meta_path = apk_patch_meta::find_meta_path(project).map_err(|e| {
+        InjectError::Inject(e.to_string())
+    })?;
     let mut meta = ApkToolMeta::load(&meta_path)?;
     if !meta.doNotCompress.iter().any(|e| e == "so") {
         meta.doNotCompress.push("so".into());
-        meta.save(&meta_path)?;
+        // Always persist under the canonical name.
+        meta.save_to_project(project)?;
     }
 
     Ok(())
@@ -248,7 +257,8 @@ pub fn apply_goauld_inject_vfs(
         .map_err(|e| InjectError::Inject(e.to_string()))?;
     info!("I: registered goauld.inject.LoaderProvider in manifest");
 
-    let meta_path = join_vfs(project, META_FILENAME);
+    let meta_path = apk_patch_meta::find_meta_path_vfs(|p| vfs.is_file(p), project)
+        .map_err(|e| InjectError::Inject(e.to_string()))?;
     let mut meta = ApkToolMeta::from_yaml(
         &vfs
             .read_to_string(&meta_path)
@@ -256,7 +266,8 @@ pub fn apply_goauld_inject_vfs(
     )?;
     if !meta.doNotCompress.iter().any(|e| e == "so") {
         meta.doNotCompress.push("so".into());
-        vfs.write(&meta_path, meta.to_yaml()?.as_bytes())
+        let canonical = join_vfs(project, apk_patch_meta::META_FILENAME);
+        vfs.write(&canonical, meta.to_yaml()?.as_bytes())
             .map_err(|e| InjectError::Inject(e.to_string()))?;
     }
 
@@ -302,6 +313,7 @@ fn next_free_dex_name_vfs(vfs: &dyn apk_patch_vfs::Vfs, project: &str) -> Result
     Err(InjectError::Inject("no free classesN.dex slot".into()))
 }
 
+#[cfg(feature = "native-fs")]
 fn next_free_dex_name(project: &Path) -> Result<String> {
     let mut used = std::collections::HashSet::new();
     for entry in std::fs::read_dir(project)? {
@@ -353,6 +365,7 @@ fn is_classes_dex_name(name: &str) -> bool {
     !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
 }
 
+#[cfg(feature = "native-fs")]
 fn tempfile_dir() -> Result<PathBuf> {
     let base = std::env::temp_dir().join(format!(
         "apk-patch-goauld-{}-{}",
@@ -381,6 +394,7 @@ mod tests {
             .any(|w| w == b"Lgoauld/inject/LoaderProvider;"));
     }
 
+    #[cfg(feature = "native-fs")]
     #[test]
     fn next_dex_skips_existing() {
         let dir = tempfile_dir().unwrap();

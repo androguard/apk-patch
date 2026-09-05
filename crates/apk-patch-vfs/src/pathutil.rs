@@ -4,6 +4,10 @@
 pub type VfsPath = String;
 
 pub fn normalize_vfs_path(path: &str) -> String {
+    let abs = path.starts_with('/')
+        || (path.len() >= 3
+            && path.as_bytes()[1] == b':'
+            && path.as_bytes()[0].is_ascii_alphabetic());
     let mut out = String::new();
     for part in path.replace('\\', "/").split('/') {
         if part.is_empty() || part == "." {
@@ -21,6 +25,12 @@ pub fn normalize_vfs_path(path: &str) -> String {
             out.push('/');
         }
         out.push_str(part);
+    }
+    if abs && !out.starts_with('/') {
+        // Restore Unix absolute root (Windows drive letter is kept in `out` as `C:/...`).
+        if !(out.len() >= 2 && out.as_bytes()[1] == b':') {
+            out.insert(0, '/');
+        }
     }
     out
 }
@@ -48,8 +58,11 @@ mod tests {
 
     #[test]
     fn normalize_and_join() {
-        assert_eq!(normalize_vfs_path("/a//b/../c"), "a/c");
+        assert_eq!(normalize_vfs_path("/a//b/../c"), "/a/c");
+        assert_eq!(normalize_vfs_path("a//b/../c"), "a/c");
         assert_eq!(join_vfs("proj", "res/values"), "proj/res/values");
+        assert_eq!(join_vfs("/tmp/proj", "res/values"), "/tmp/proj/res/values");
         assert_eq!(parent_vfs("a/b/c.txt").as_deref(), Some("a/b"));
+        assert_eq!(parent_vfs("/tmp/a/b").as_deref(), Some("/tmp/a"));
     }
 }

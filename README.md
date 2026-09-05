@@ -114,7 +114,7 @@ cargo run -p apk-patch-cli -- d app.apk -o full/ -f -a
 
 ```bash
 cargo run -p apk-patch-cli -- b out/ -f
-# → out/dist/<apkFileName>  (from apktool.yml)
+# → out/dist/<apkFileName>  (from apkpatch.yml)
 ```
 
 Default resource path: **pure-Rust ARSC builder** from `res/values*/` + `public.xml` + file resources. Text `res/**/*.xml` is re-encoded to binary AXML. Manifest is encoded from the project-root text XML.
@@ -138,7 +138,7 @@ Default resource path: **pure-Rust ARSC builder** from `res/values*/` + `public.
 | `--no-crunch` | Pass `--no-crunch` to aapt2 compile |
 | `--v1-signing-enabled` / `--v2-…` / `--v3-…` | Toggle signing schemes (default: all on) |
 
-SDK / version from `apktool.yml` (`sdkInfo`, `versionInfo`) are applied to the text manifest on build.
+SDK / version from `apkpatch.yml` (`sdkInfo`, `versionInfo`) are applied to the text manifest on build.
 
 ### Examples
 
@@ -166,7 +166,7 @@ After `decode`:
 
 ```
 out/
-├── apktool.yml              # metadata (sdk/version, framework ids, …)
+├── apkpatch.yml              # metadata (sdk/version, framework ids, …)
 ├── AndroidManifest.xml      # text XML (edit this)
 ├── dex/                     # classes.dex as *.dex.txt
 ├── dex_classes2/            # multi-dex (if present)

@@ -1,7 +1,9 @@
-//! Clean unused imports after Path decode delegates to VFS.
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(feature = "native-fs")]
+use std::path::Path;
 
 use apk_patch_resources::ResResolveMode;
+use log::info;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -77,6 +79,12 @@ pub struct DecodeResult {
     pub dex_class_count: usize,
 }
 
+/// Path-based decode (host filesystem). Requires the `native-fs` feature.
+///
+/// Accepts plain `.apk`, APKPure `.xapk`, and APKMirror `.apkm` containers.
+/// For split containers, the base APK is decoded into the project root and non-base
+/// members are preserved under `container/` for a faithful rebuild.
+#[cfg(feature = "native-fs")]
 pub fn decode_apk(apk_path: &Path, options: &DecodeOptions) -> Result<DecodeResult> {
     let apk_name = apk_path
         .file_name()
@@ -87,10 +95,41 @@ pub fn decode_apk(apk_path: &Path, options: &DecodeOptions) -> Result<DecodeResu
         apk_path
             .parent()
             .unwrap_or(Path::new("."))
-            .join(apk_name.trim_end_matches(".apk"))
+            .join(crate::container::strip_package_extension(apk_name))
     });
 
     let bytes = std::fs::read(apk_path)?;
+
+    if let Some(pkg) = crate::container::SplitPackage::open(&bytes)? {
+        info!(
+            "I: detected {} container (base={}, {} members)",
+            pkg.format.as_str(),
+            pkg.base_apk,
+            pkg.members.len()
+        );
+        let base_bytes = pkg.base_apk_bytes()?;
+        let mut vfs = apk_patch_vfs::StdFs::new();
+        let out = output_dir.to_string_lossy().replace('\\', "/");
+        // Decode using the outer package name so apkpatch.yml / dist keep .xapk/.apkm.
+        let mut result =
+            crate::decode_vfs::decode_apk_vfs(&base_bytes, apk_name, &out, options, &mut vfs)?;
+        pkg.write_preserved_members(&output_dir)?;
+        crate::container::stamp_container_meta(
+            &output_dir,
+            apk_name,
+            pkg.format,
+            pkg.to_meta(),
+        )?;
+        // Count preserved container members toward entry_count for visibility.
+        result.entry_count += pkg.members.len().saturating_sub(1);
+        info!(
+            "I: preserved {} non-base container member(s) under {}/",
+            pkg.members.len().saturating_sub(1),
+            apk_patch_meta::CONTAINER_DIR
+        );
+        return Ok(result);
+    }
+
     let mut vfs = apk_patch_vfs::StdFs::new();
     let out = output_dir.to_string_lossy().replace('\\', "/");
     crate::decode_vfs::decode_apk_vfs(&bytes, apk_name, &out, options, &mut vfs)

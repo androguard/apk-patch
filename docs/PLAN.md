@@ -27,7 +27,7 @@
 apk-patch-cli          ← Apktool-compatible commands and flags
     │
 apk-patch-core         ← decode / build orchestration
-    ├── apk-patch-meta       ← apktool.yml read/write
+    ├── apk-patch-meta       ← apkpatch.yml read/write
     ├── apk-patch-project    ← directory layout, file classification
     ├── apk-patch-dex        ← dex-txt emit, parse, assemble (Phase 1)
     ├── apk-patch-framework  ← framework install/cache (Phase 2)
@@ -48,7 +48,7 @@ apk-patch/
 ├── Cargo.toml                    # workspace root
 ├── crates/
 │   ├── apk-patch-core/           # decode/build orchestration
-│   ├── apk-patch-meta/           # apktool.yml read/write + 2.x migration
+│   ├── apk-patch-meta/           # apkpatch.yml read/write + 2.x migration
 │   ├── apk-patch-project/        # directory layout, file classification
 │   ├── apk-patch-dex/            # dex-txt emit, parse, assemble
 │   ├── apk-patch-framework/      # framework install/cache/list/clean (Phase 2)
@@ -167,7 +167,7 @@ Same naming rules as Apktool, different prefix (`dex_` instead of `smali_`).
 | Area | Apktool | APK-PATCH |
 |------|---------|-----------|
 | CLI commands | `d`, `b`, `if`, `cf`, `lf`, `pr` | Same |
-| Project metadata | `apktool.yml` | Same (3.x schema + 2.x import) |
+| Project metadata | `apktool.yml` | **`apkpatch.yml`** (still loads legacy `apktool.yml`) |
 | Resources | `res/` tree | Same |
 | Manifest | text `AndroidManifest.xml` | Same |
 | Assets, lib, unknown, original | same dirs | Same |
@@ -185,7 +185,7 @@ Same naming rules as Apktool, different prefix (`dex_` instead of `smali_`).
 
 - [x] Cargo workspace: `apk-patch-core`, `apk-patch-meta`, `apk-patch-project`, `apk-patch-sign`, `apk-patch-cli`
 - [x] CLI skeleton with all commands and global flags (`-q`, `-v`)
-- [x] `apktool.yml` read/write (3.x schema, 2.x field migration)
+- [x] `apkpatch.yml` read/write (3.x schema, 2.x field migration)
 - [x] File classification: `assets/`, `lib/`, `original/`, `unknown/`, raw dex copy
 - [x] `apkparser`: add `ApkWriter` (follow `apple-re/ipa_vfs` repack pattern)
 - [x] Decode `-s -r`: copy raw dex + `resources.arsc` verbatim
@@ -275,7 +275,7 @@ Labels are named; offsets are computed at assemble time. Hex is comment-only (ex
 
 - [ ] 2.x project import (yml field aliases)
 - [ ] `--lib` shared library resolution
-- [ ] Split APK / APKM workflows
+- [x] Split APK / XAPK / APKM workflows
 - [ ] ZIP hardening (dot entries, Zip64)
 - [ ] Log prefix parity (`I:` / `W:` / `E:`)
 - [ ] Signing options: debug vs release keystore, v1-only, v2-only, sign-after-build hook
@@ -392,7 +392,7 @@ Target **Apktool 3.x** as primary reference. See [Apktool CLI docs](https://apkt
 
 ```
 output/
-├── apktool.yml
+├── apkpatch.yml
 ├── AndroidManifest.xml
 ├── dex/                      ← Apktool uses smali/
 ├── dex_classes2/             ← Apktool uses smali_classes2/
@@ -427,7 +427,7 @@ build/
 
 ---
 
-## `apktool.yml` (3.x schema)
+## `apkpatch.yml` (3.x schema)
 
 ```yaml
 version: "3.0.0"

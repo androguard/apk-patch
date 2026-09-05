@@ -1,6 +1,6 @@
 [package]
 name = "apk-patch-meta"
-description = "apktool.yml metadata read/write for apk-patch"
+description = "apkpatch.yml metadata read/write for apk-patch"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,3 +9,6 @@ license.workspace = true
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"

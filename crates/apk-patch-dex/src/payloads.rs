@@ -199,7 +199,10 @@ fn resolve_target(
 fn parse_int(s: &str) -> Result<i64, DexError> {
     let s = s.trim().trim_end_matches(',');
     if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        return i64::from_str_radix(rest, 16)
+        // Accept full-width unsigned hex (incl. sign-extended negatives like
+        // 0xffffffffbd52c8c5 from older emitters) and re-interpret as i64 bits.
+        return u64::from_str_radix(rest, 16)
+            .map(|u| u as i64)
             .map_err(|e| DexError::Txt(format!("bad hex int {s}: {e}")));
     }
     s.parse::<i64>()
@@ -273,7 +276,14 @@ pub fn format_payload_block(bytes: &[u8]) -> Result<String, DexError> {
                     8 => i64::from_le_bytes(bytes[pos..pos + 8].try_into().unwrap()),
                     _ => 0,
                 };
-                out.push_str(&format!("        0x{v:x}\n"));
+                let hex = match width {
+                    1 => format!("0x{:x}", v as u8),
+                    2 => format!("0x{:x}", v as u16),
+                    4 => format!("0x{:x}", v as u32),
+                    8 => format!("0x{:x}", v as u64),
+                    _ => format!("0x{v:x}"),
+                };
+                out.push_str(&format!("        {hex}\n"));
                 pos += width;
             }
             out.push_str("    .end array-data\n");

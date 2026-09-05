@@ -44,7 +44,7 @@ fn build_and_decode_apk_test() {
     .unwrap();
 
     assert!(decoded.is_dir());
-    assert!(decoded.join("apktool.yml").is_file());
+    assert!(decoded.join("apkpatch.yml").is_file());
     assert!(decoded.join("AndroidManifest.xml").is_file());
     assert!(decoded.join("res/values/public.xml").is_file());
     assert!(decoded.join("original/resources.arsc").is_file());
@@ -75,7 +75,7 @@ fn build_and_decode_apk_test() {
         },
     )
     .unwrap();
-    assert!(redecoded.join("apktool.yml").is_file());
+    assert!(redecoded.join("apkpatch.yml").is_file());
 }
 
 /// Apktool: `SkipAssetTest`
@@ -274,7 +274,7 @@ fn publicize_resources_test() {
     publicize_resources_bytes(&mut arsc).unwrap();
 }
 
-/// Apktool: confirm apktool.yml records sdk/version after decode
+/// Apktool: confirm apkpatch.yml records sdk/version after decode
 #[test]
 fn confirm_meta_sdk_version_info() {
     let apk_path = match sample("TestActivity.apk") {
@@ -295,7 +295,7 @@ fn confirm_meta_sdk_version_info() {
     )
     .unwrap();
 
-    let meta = ApkToolMeta::load(&out.join("apktool.yml")).unwrap();
+    let meta = ApkToolMeta::load(&out.join("apkpatch.yml")).unwrap();
     assert_eq!(meta.apkFileName, "TestActivity.apk");
     assert!(meta.sdkInfo.minSdkVersion.is_some());
     assert!(meta.versionInfo.versionCode.is_some());
@@ -368,7 +368,7 @@ fn unknown_folder_test() {
     )
     .unwrap();
     // TestActivity has no unknown entries; ensure decode succeeds and layout dirs exist as expected.
-    assert!(out.join("apktool.yml").is_file());
+    assert!(out.join("apkpatch.yml").is_file());
 }
 
 /// PLAN Phase 3 decode: values*/public, binary layout XML → text, resolve-mode flags.
@@ -454,7 +454,7 @@ fn build_flags_no_apk_debuggable_copy_original() {
     .unwrap();
 
     // Patch yml version for apply path
-    let meta_path = decoded.join("apktool.yml");
+    let meta_path = decoded.join("apkpatch.yml");
     let mut meta = ApkToolMeta::load(&meta_path).unwrap();
     meta.versionInfo.versionCode = Some(99);
     meta.versionInfo.versionName = Some("9.9".into());

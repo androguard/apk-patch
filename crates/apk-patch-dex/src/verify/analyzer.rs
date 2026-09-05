@@ -67,12 +67,35 @@ impl Frame {
         let hi = lo
             .wide_hi_pair()
             .unwrap_or_else(|| RegType::cat(Category::Conflicted));
+        // Break any pairs that overlap the destination before installing the new wide.
+        self.invalidate_wide_overlap(idx);
+        self.invalidate_wide_overlap(idx + 1);
         self.set(idx, lo);
         self.set(idx + 1, hi);
     }
 
+    /// After `<init>`, Dalvik initializes every register holding that allocation.
+    fn initialize_uninit_id(&mut self, id: u32, desc: String) {
+        let initialized = RegType::reference(desc);
+        for r in &mut self.regs {
+            if r.category == Category::UninitRef && r.uninit_id == Some(id) {
+                *r = initialized.clone();
+            }
+        }
+    }
+
+    fn initialize_uninit_this(&mut self, desc: String) {
+        let initialized = RegType::reference(desc);
+        for r in &mut self.regs {
+            if r.category == Category::UninitThis {
+                *r = initialized.clone();
+            }
+        }
+    }
+
     fn invalidate_wide_overlap(&mut self, idx: u16) {
-        // Writing a single-width into the high half of a wide pair, or into lo, breaks pairs.
+        // Writing into a register that sits next to / inside a wide pair breaks that pair.
+        // If `idx-1` is wide-lo, we are clobbering its hi slot.
         if idx > 0 {
             let prev = self.get(idx - 1);
             if prev.category.is_wide_lo() {
@@ -80,12 +103,14 @@ impl Frame {
             }
         }
         let cur = self.get(idx);
+        // If `idx` itself is wide-lo, its hi at idx+1 is now orphaned.
         if cur.category.is_wide_lo() {
             self.set(idx + 1, RegType::cat(Category::Conflicted));
         }
-        if cur.category.is_wide_hi() {
-            self.set(idx - 1, RegType::cat(Category::Conflicted));
-        }
+        // Note: do NOT conflict idx-1 merely because `cur` is wide-hi. After a wide
+        // write that reuses the old lo as a new pair's hi (e.g. const-wide v5 then
+        // iget-wide v4), the old hi can be left as an orphaned LongHi; overwriting
+        // that orphan must not poison the live pair whose hi now sits at idx-1.
     }
 }
 
@@ -176,7 +201,7 @@ pub fn analyze_method(
             continue;
         }
 
-        let out = apply_insn(insn, &frame, &ret, &method.name, &method.proto)?;
+        let out = apply_insn(insn, idx, &frame, &ret, &method.name, &method.proto)?;
         for &s in &succs[idx] {
             // Exception handlers get a Throwable in the first free sense: Dalvik puts exception
             // object in the same register state but we inject REFERENCE Throwable at join.
@@ -189,7 +214,10 @@ pub fn analyze_method(
         }
     }
 
-    // Also verify catch handlers are reachable with merge from try bodies
+    // Also verify catch handlers are reachable with merge from try bodies.
+    // Only instructions that can throw contribute: merging non-throwing ops
+    // (e.g. return-void reachable from both a pre-monitor early exit and the
+    // synchronized path) falsely Conflicted-s monitor registers.
     for c in &method.catches {
         let Some(&handler) = labels.get(&c.handler_label) else {
             continue;
@@ -198,6 +226,10 @@ pub fn analyze_method(
         let end = labels.get(&c.end_label).copied();
         if let (Some(start), Some(end)) = (start, end) {
             for i in start..end.min(method.insns.len()) {
+                let insn = &method.insns[i];
+                if !insn_can_throw(&insn.mnemonic) {
+                    continue;
+                }
                 if let Some(ref fr) = entry_frames[i] {
                     let mut h = fr.clone();
                     h.pending_result = None;
@@ -216,7 +248,7 @@ pub fn analyze_method(
             }
             continue;
         }
-        let out = apply_insn(insn, &frame, &ret, &method.name, &method.proto)?;
+        let out = apply_insn(insn, idx, &frame, &ret, &method.name, &method.proto)?;
         for &s in &succs[idx] {
             merge_into(&mut entry_frames, s, &out, &mut work);
         }
@@ -261,6 +293,72 @@ fn is_handler_edge(
     to: usize,
 ) -> bool {
     method.catches.iter().any(|c| labels.get(&c.handler_label) == Some(&to))
+}
+
+/// Conservative: false only for opcodes that never deliver an exception to a catch.
+fn insn_can_throw(m: &str) -> bool {
+    if m.starts_with('.') {
+        return false;
+    }
+    if matches!(
+        m,
+        "nop"
+            | "return"
+            | "return-void"
+            | "return-wide"
+            | "return-object"
+            | "goto"
+            | "goto/16"
+            | "goto/32"
+    ) {
+        return false;
+    }
+    if m.starts_with("if-") || m.starts_with("const") || m.starts_with("move") {
+        return false;
+    }
+    if m.starts_with("cmp-") || m.starts_with("cmpl-") || m.starts_with("cmpg-") {
+        return false;
+    }
+    // Integer div/rem throw ArithmeticException; float/double never do.
+    if matches!(
+        m,
+        "div-int"
+            | "div-int/2addr"
+            | "div-int/lit16"
+            | "div-int/lit8"
+            | "rem-int"
+            | "rem-int/2addr"
+            | "rem-int/lit16"
+            | "rem-int/lit8"
+            | "div-long"
+            | "div-long/2addr"
+            | "rem-long"
+            | "rem-long/2addr"
+    ) {
+        return true;
+    }
+    if m.starts_with("neg-")
+        || m.starts_with("not-")
+        || m.contains("-to-")
+        || m.contains("-int")
+        || m.contains("-long")
+        || m.contains("-float")
+        || m.contains("-double")
+        || m.starts_with("div-")
+        || m.starts_with("rem-")
+        || m.starts_with("add-")
+        || m.starts_with("sub-")
+        || m.starts_with("mul-")
+        || m.starts_with("and-")
+        || m.starts_with("or-")
+        || m.starts_with("xor-")
+        || m.starts_with("shl-")
+        || m.starts_with("shr-")
+        || m.starts_with("ushr-")
+    {
+        return false;
+    }
+    true
 }
 
 fn build_successors(
@@ -349,6 +447,7 @@ fn first_label(operands: &str) -> Option<&str> {
 
 fn apply_insn(
     insn: &DexTxtInsn,
+    insn_idx: usize,
     frame: &Frame,
     method_ret: &str,
     method_name: &str,
@@ -552,17 +651,13 @@ fn apply_insn(
         "array-length" => {
             let (dst, src) = bin_regs(&regs)?;
             let src_ty = frame.get(src);
-            if !src_ty.category.is_reference_like()
-                || src_ty
-                    .type_desc
-                    .as_ref()
-                    .is_some_and(|t| !t.starts_with('['))
-                    && src_ty.category != Category::Null
-            {
-                // Null OK; ref must be array if known
-                if src_ty.category != Category::Null
-                    && src_ty.type_desc.as_ref().is_some_and(|t| !t.starts_with('['))
-                {
+            if !src_ty.category.is_reference_like() {
+                return Err(ctx(format!("array-length on non-ref {src_ty}")));
+            }
+            // Without ClassPath, CFG merges often widen array types to Object.
+            // Accept Object/Null/unknown refs; only reject clearly non-array classes.
+            if let Some(t) = src_ty.type_desc.as_ref() {
+                if !t.starts_with('[') && t != "Ljava/lang/Object;" {
                     return Err(ctx(format!("array-length on non-array {src_ty}")));
                 }
             }
@@ -574,7 +669,7 @@ fn apply_insn(
             let ty = type_ref_from_ops(&insn.operands)
                 .ok_or_else(|| ctx("new-instance missing type".into()))?;
             out.invalidate_wide_overlap(dst);
-            out.set(dst, RegType::uninit_ref(ty));
+            out.set(dst, RegType::uninit_ref(ty, insn_idx as u32));
         }
         "new-array" => {
             let (dst, size) = bin_regs(&regs)?;
@@ -743,20 +838,28 @@ fn apply_insn(
             let mref = method_ref_from_ops(&insn.operands);
             if let Some((_, _, proto)) = mref {
                 let (params, ret) = parse_proto(&proto);
-                // For invoke-direct <init>, initialize UninitRef/UninitThis
+                // For invoke-direct <init>, initialize UninitRef/UninitThis (all aliases).
                 if (x.starts_with("invoke-direct") || x.starts_with("invoke-super"))
                     && insn.operands.contains("-><init>(")
                 {
                     if let Some(&this_r) = regs.first() {
                         let this_ty = frame.get(this_r);
-                        if this_ty.category == Category::UninitRef
-                            || this_ty.category == Category::UninitThis
-                        {
+                        if this_ty.category == Category::UninitRef {
                             let desc = this_ty
                                 .type_desc
                                 .clone()
                                 .unwrap_or_else(|| "Ljava/lang/Object;".into());
-                            out.set(this_r, RegType::reference(desc));
+                            if let Some(id) = this_ty.uninit_id {
+                                out.initialize_uninit_id(id, desc);
+                            } else {
+                                out.set(this_r, RegType::reference(desc));
+                            }
+                        } else if this_ty.category == Category::UninitThis {
+                            let desc = this_ty
+                                .type_desc
+                                .clone()
+                                .unwrap_or_else(|| "Ljava/lang/Object;".into());
+                            out.initialize_uninit_this(desc);
                         }
                     }
                 }
@@ -768,13 +871,22 @@ fn apply_insn(
                 let mut ai = 0usize;
                 // Non-static invokes: first reg is this
                 let has_this = !x.contains("static") && !x.contains("custom");
+                let is_init_call = insn.operands.contains("-><init>(");
                 if has_this {
                     if let Some(&r) = arg_regs.first() {
                         let ty = frame.get(r);
-                        if !ty.category.is_reference_like()
-                            && ty.category != Category::UninitRef
-                            && ty.category != Category::UninitThis
-                        {
+                        let allow_uninit = is_init_call
+                            && (x.starts_with("invoke-direct") || x.starts_with("invoke-super"));
+                        if matches!(
+                            ty.category,
+                            Category::UninitRef | Category::UninitThis
+                        ) {
+                            if !allow_uninit {
+                                return Err(ctx(format!(
+                                    "invoke this-reg v{r} is {ty} (uninitialized)"
+                                )));
+                            }
+                        } else if !ty.category.is_reference_like() {
                             return Err(ctx(format!("invoke this-reg v{r} is {ty}")));
                         }
                         ai = 1;
@@ -785,15 +897,37 @@ fn apply_insn(
                     let Some(&r) = arg_regs.get(ai) else {
                         break;
                     };
-                    require(frame, r, &expect)?;
-                    ai += if expect.category.is_wide_lo() { 2 } else { 1 };
-                    // For wide, parse_reg_operands lists only start regs for range;
-                    // for non-range wide, smali lists one reg for the pair.
-                    if !x.contains("/range") && expect.category.is_wide_lo() {
-                        // single register listed for wide pair
+                    // Prefer post-<init> types when validating args of the init call itself.
+                    let got = if insn.operands.contains("-><init>(") {
+                        out.get(r)
+                    } else {
+                        frame.get(r)
+                    };
+                    if !got.can_assign_to(&expect) {
+                        return Err(ctx(format!(
+                            "v{r} has type {got}, expected {expect}"
+                        )));
                     }
+                    if expect.category.is_wide_lo() {
+                        let hi = if insn.operands.contains("-><init>(") {
+                            out.get(r + 1)
+                        } else {
+                            frame.get(r + 1)
+                        };
+                        let expect_hi = expect
+                            .wide_hi_pair()
+                            .unwrap_or_else(|| RegType::cat(Category::LongHi));
+                        if !hi.can_assign_to(&expect_hi) {
+                            return Err(ctx(format!(
+                                "v{r} wide pair broken: v{} is {hi}, expected {expect_hi}",
+                                r + 1
+                            )));
+                        }
+                    }
+                    ai += if expect.category.is_wide_lo() { 2 } else { 1 };
                 }
                 let _ = ai;
+                let _ = arg_regs;
                 if ret != "V" {
                     out.pending_result = Some(RegType::from_descriptor(ret));
                 } else {
@@ -923,6 +1057,10 @@ fn apply_unary_or_binary_arith(
     };
 
     let dst = regs.first().copied().ok_or_else(|| ctx("missing dest".into()))?;
+    // shl/shr/ushr-long: value is long, shift distance is int (Dalvik).
+    let is_long_shift = m.starts_with("shl-long")
+        || m.starts_with("shr-long")
+        || m.starts_with("ushr-long");
     // unary: neg-int vA, vB  or  int-to-long vA, vB
     if regs.len() >= 2 && (m.starts_with("neg-") || m.starts_with("not-") || m.contains("-to-")) {
         let src = regs[1];
@@ -937,18 +1075,55 @@ fn apply_unary_or_binary_arith(
             }
         }
     } else if regs.len() >= 3 {
-        // binary: add-int vA, vB, vC
-        for &r in &regs[1..3] {
-            let got = frame.get(r);
-            if !got.can_assign_to(&src_expect) {
-                return Err(ctx(format!("v{r} is {got}, expected {src_expect}")));
+        // binary: add-int vA, vB, vC  — or ushr-long vA, vB, vC (vC is int)
+        let (a, b) = (regs[1], regs[2]);
+        if is_long_shift {
+            let got = frame.get(a);
+            if !got.can_assign_to(&RegType::cat(Category::LongLo)) {
+                return Err(ctx(format!("v{a} is {got}, expected LongLo")));
+            }
+            let hi = frame.get(a + 1);
+            if !hi.category.is_wide_hi() {
+                return Err(ctx(format!("wide source pair broken at v{a}")));
+            }
+            let shift = frame.get(b);
+            if !shift.can_assign_to(&RegType::cat(Category::Integer)) {
+                return Err(ctx(format!("v{b} is {shift}, expected Integer")));
+            }
+        } else {
+            for &r in &[a, b] {
+                let got = frame.get(r);
+                if !got.can_assign_to(&src_expect) {
+                    return Err(ctx(format!("v{r} is {got}, expected {src_expect}")));
+                }
+                if src_expect.category.is_wide_lo() {
+                    let hi = frame.get(r + 1);
+                    if !hi.category.is_wide_hi() {
+                        return Err(ctx(format!("wide source pair broken at v{r}")));
+                    }
+                }
             }
         }
     } else if regs.len() == 2 && m.contains("/2addr") {
         let src = regs[1];
-        let got = frame.get(src);
-        if !got.can_assign_to(&src_expect) {
-            return Err(ctx(format!("v{src} is {got}, expected {src_expect}")));
+        if is_long_shift {
+            let got = frame.get(dst);
+            if !got.can_assign_to(&RegType::cat(Category::LongLo)) {
+                return Err(ctx(format!("v{dst} is {got}, expected LongLo")));
+            }
+            let hi = frame.get(dst + 1);
+            if !hi.category.is_wide_hi() {
+                return Err(ctx(format!("wide source pair broken at v{dst}")));
+            }
+            let shift = frame.get(src);
+            if !shift.can_assign_to(&RegType::cat(Category::Integer)) {
+                return Err(ctx(format!("v{src} is {shift}, expected Integer")));
+            }
+        } else {
+            let got = frame.get(src);
+            if !got.can_assign_to(&src_expect) {
+                return Err(ctx(format!("v{src} is {got}, expected {src_expect}")));
+            }
         }
     } else if regs.len() >= 2 && m.contains("/lit") {
         let src = regs[1];

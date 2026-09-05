@@ -17,17 +17,29 @@ impl StdFs {
     }
 
     fn to_os(path: &str) -> PathBuf {
-        let n = normalize_vfs_path(path);
+        let replaced = path.replace('\\', "/");
+        // Preserve absolute paths (`/tmp/...`, `/Users/...`). `normalize_vfs_path`
+        // drops a leading slash for MemVfs roots — that must not apply to the host FS.
+        if replaced.starts_with('/') {
+            return PathBuf::from(replaced);
+        }
+        // Windows drive paths: `C:/...`
+        if replaced.len() >= 3
+            && replaced.as_bytes()[1] == b':'
+            && replaced.as_bytes()[0].is_ascii_alphabetic()
+        {
+            return PathBuf::from(replaced);
+        }
+        let n = normalize_vfs_path(&replaced);
         if n.is_empty() {
             PathBuf::from(".")
         } else {
-            // Path::new accepts `/` on all platforms Rust supports.
             PathBuf::from(&n)
         }
     }
 
     fn from_os(path: &Path) -> String {
-        normalize_vfs_path(&path.to_string_lossy())
+        path.to_string_lossy().replace('\\', "/")
     }
 }
 

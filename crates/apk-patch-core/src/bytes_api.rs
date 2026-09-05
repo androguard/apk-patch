@@ -47,7 +47,8 @@ pub fn build_project_bytes(
     options: &BuildOptions,
 ) -> Result<BytesBuildResult, crate::build::BuildError> {
     let mut opts = options.clone();
-    // Browser-safe defaults when aapt2 is requested.
+    // Browser-safe: never spawn host aapt2. Pure-Rust rebuild still honored via
+    // `rebuild_resources` (see build_vfs can_rebuild).
     if opts.use_aapt2 {
         opts.use_aapt2 = false;
         if !opts.rebuild_resources {

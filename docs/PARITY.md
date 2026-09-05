@@ -14,6 +14,7 @@ Tracking apk-patch progress against [Apktool 3.x](https://github.com/iBotPeaches
 |---------|---------|-----------|
 | Code format | smali | dex-txt |
 | Code directories | `smali/` | `dex/` |
+| Project metadata | `apktool.yml` | **`apkpatch.yml`** (loads legacy `apktool.yml`) |
 | Full baksmali verifier / `.locals` default | ClassPath + MethodAnalyzer | CFG register-type dataflow (smali categories); `.registers` default, `.locals` accepted |
 | Build signing | unsigned (manual) | **signed by default** |
 | `--no-sign` flag | N/A | outputs unsigned APK |
@@ -120,7 +121,7 @@ Tracking apk-patch progress against [Apktool 3.x](https://github.com/iBotPeaches
 
 | Feature | Status |
 |---------|--------|
-| `apktool.yml` | ☑ |
+| `apkpatch.yml` | ☑ |
 | `AndroidManifest.xml` (text) | ☑ |
 | `dex/` and `dex_*` directories | ☑ |
 | `res/` tree | ◐ values* + decoded XML + binary assets |
@@ -137,7 +138,7 @@ Tracking apk-patch progress against [Apktool 3.x](https://github.com/iBotPeaches
 
 | Feature | Status |
 |---------|--------|
-| Load and validate `apktool.yml` | ☑ |
+| Load and validate `apkpatch.yml` | ☑ |
 | Incremental rebuild (mtime checks) | ☐ |
 | Force rebuild (`-f`) | ☑ |
 | dex-txt → dex assembly | ☑ |
@@ -186,7 +187,7 @@ Tracking apk-patch progress against [Apktool 3.x](https://github.com/iBotPeaches
 
 ---
 
-## Metadata (`apktool.yml`)
+## Metadata (`apkpatch.yml`)
 
 | Feature | Status |
 |---------|--------|
@@ -216,10 +217,10 @@ Tracking apk-patch progress against [Apktool 3.x](https://github.com/iBotPeaches
 
 | Feature | Status |
 |---------|--------|
-| 2.x decoded project import | ◐ yml migrate |
+| 2.x decoded project import | ◐ yml migrate; also accepts legacy `apktool.yml` |
 | Log prefix format (`I:`/`W:`/`E:`/`D:`) | ☑ |
 | Framework-not-found actionable error | ☑ |
-| Split APK / APKM workflows | ☐ |
+| Split APK / XAPK / APKM workflows | ☑ decode preserves splits; build repacks container |
 
 ---
 

@@ -378,15 +378,18 @@ pub struct BuildEntry {
 fn should_skip_on_build(rel: &str) -> bool {
     matches!(
         rel,
-        "apktool.yml"
+        "apkpatch.yml"
+            | "apktool.yml"
             | "original"
             | "dist"
             | "build"
+            | "container"
             | "AndroidManifest.xml"
             | "resources.arsc"
     ) || rel.starts_with("original/")
         || rel.starts_with("dist/")
         || rel.starts_with("build/")
+        || rel.starts_with("container/")
         || rel.starts_with("dex/")
         || rel.starts_with("dex_")
         // Decoded value XML is rebuilt from arsc later; don't pack as APK entries yet.

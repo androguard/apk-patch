@@ -542,6 +542,132 @@ fn ok_params_long() {
 }
 
 #[test]
+fn ok_monitor_exit_after_early_return_join() {
+    // LocationManagerCompat.unregisterGnssMeasurementsCallback: early path leaves
+    // v0 as int; synchronized path uses v0 as the monitor. return-void joins both,
+    // and sits inside the catchall address range — must not Conflicted the handler.
+    assert_ok(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo(Z)V
+    .registers 3
+    const/4 v0, 1
+    if-eqz v2, :Lsync
+    goto :Lret
+    :Lsync
+    sget-object v0, LT;->lock:Ljava/lang/Object;
+    monitor-enter v0
+    :Ltry
+    invoke-static {}, LT;->side()V
+    monitor-exit v0
+    :Lret
+    return-void
+    :Lhandler
+    move-exception v1
+    monitor-exit v0
+    :Lcatchend
+    throw v1
+    .catchall { :Ltry .. :Lcatchend } :Lhandler
+.end method
+.field public static lock:Ljava/lang/Object;
+.method public static side()V
+    .registers 0
+    return-void
+.end method
+"#,
+    );
+}
+
+#[test]
+fn ok_ushr_long_with_int_shift() {
+    // LocationRequestCompat.hashCode: ushr-long v4, v1, v3 with v3 = const/16 32
+    assert_ok(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo()I
+    .registers 6
+    const-wide/16 v0, 1
+    const/16 v2, 32
+    ushr-long v4, v0, v2
+    xor-long/2addr v0, v4
+    long-to-int v0, v0
+    return v0
+.end method
+"#,
+    );
+}
+
+#[test]
+fn ok_wide_reuse_after_orphaned_hi() {
+    // Mirrors androidx RoomDatabase$Builder.build → AutoCloser.<init>(J…):
+    // const-wide/16 v5 leaves (v5,v6); iget-wide v4 reuses v5 as hi of (v4,v5),
+    // leaving v6 as an orphaned LongHi; iget-object v6 must not Conflicted v5.
+    assert_ok(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo(LT;)V
+    .registers 9
+    const-wide/16 v5, 0
+    new-instance v3, LAutoCloser;
+    iget-wide v4, v8, LT;->timeout:J
+    iget-object v6, v8, LT;->unit:Ljava/util/concurrent/TimeUnit;
+    iget-object v7, v8, LT;->exec:Ljava/util/concurrent/Executor;
+    invoke-direct v3, v4, v5, v6, v7, LAutoCloser;-><init>(JLjava/util/concurrent/TimeUnit;Ljava/util/concurrent/Executor;)V
+    return-void
+.end method
+.field public timeout:J
+.field public unit:Ljava/util/concurrent/TimeUnit;
+.field public exec:Ljava/util/concurrent/Executor;
+"#,
+    );
+}
+
+#[test]
+fn ok_uninit_alias_initialized_by_direct_range() {
+    // Mirrors androidx Transition.createAnimators:
+    // new-instance v14; move-object v0,v14; invoke-direct/range v0..; use v14
+    assert_ok(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo()V
+    .registers 3
+    new-instance v2, LFoo;
+    move-object v0, v2
+    const/4 v1, 0
+    invoke-direct/range v0 ... v1, LFoo;-><init>(I)V
+    invoke-static {v2}, LT;->use(LFoo;)V
+    return-void
+.end method
+.method public static use(LFoo;)V
+    .registers 1
+    return-void
+.end method
+"#,
+    );
+}
+
+#[test]
+fn err_use_alias_without_init() {
+    assert_err_contains(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo()Ljava/lang/Object;
+    .registers 2
+    new-instance v0, LFoo;
+    move-object v1, v0
+    return-object v1
+.end method
+"#,
+        "register-type",
+    );
+}
+
+#[test]
 fn ok_if_eq_references() {
     assert_ok(
         r#"
@@ -601,3 +727,66 @@ fn err_if_eq_int_vs_ref() {
     );
 }
 
+#[test]
+fn ok_float_div_does_not_poison_catch_int() {
+    // Facebook-style: int in v3, then float→double uses v2/v3 as a wide pair on
+    // one path. div-double must not be treated as throwable or the handler merge
+    // Conflicted-s v3 (DoubleHi vs Integer) and breaks `return v3`.
+    assert_ok(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo(Ljava/lang/String;I)I
+    .registers 6
+    const/4 v3, 0
+    if-eqz v4, :L_end
+    :L_start
+    invoke-static v4, Ljava/lang/Integer;->parseInt(Ljava/lang/String;)I
+    move-result v1
+    int-to-float v0, v1
+    float-to-double v2, v0
+    const-wide/high16 v0, 0
+    div-double/2addr v2, v0
+    double-to-int v0, v2
+    return v0
+    :L_handler
+    return v3
+    :L_end
+    return v3
+    .catch Ljava/lang/NumberFormatException; { :L_start .. :L_handler } :L_handler
+.end method
+"#,
+    );
+}
+
+#[test]
+fn ok_array_length_on_object_ref() {
+    // Merges without ClassPath widen `[F` / `[L…;` to Object; array-length must still pass.
+    assert_ok(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo(Ljava/lang/Object;)I
+    .registers 2
+    array-length v0, v1
+    return v0
+.end method
+"#,
+    );
+}
+
+#[test]
+fn err_array_length_on_string() {
+    assert_err_contains(
+        r#"
+.class public LT;
+.super Ljava/lang/Object;
+.method public static foo(Ljava/lang/String;)I
+    .registers 2
+    array-length v0, v1
+    return v0
+.end method
+"#,
+        "non-array",
+    );
+}

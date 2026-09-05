@@ -119,6 +119,15 @@ pub fn parse_class_file(content: &str) -> Result<DexTxtClass, DexError> {
         }
 
         if trimmed == ".end method" {
+            if let Some(method) = current_method.as_mut() {
+                if let Some(lab) = pending_label.take() {
+                    method.insns.push(DexTxtInsn {
+                        label: Some(lab),
+                        mnemonic: ".mark".into(),
+                        operands: String::new(),
+                    });
+                }
+            }
             if let Some(method) = current_method.take() {
                 class.methods.push(method);
             }
@@ -297,6 +306,13 @@ pub fn parse_class_file(content: &str) -> Result<DexTxtClass, DexError> {
         }
         if trimmed.starts_with(".catch ") || trimmed.starts_with(".catchall") {
             if let Some(method) = current_method.as_mut() {
+                if let Some(lab) = pending_label.take() {
+                    method.insns.push(DexTxtInsn {
+                        label: Some(lab),
+                        mnemonic: ".mark".into(),
+                        operands: String::new(),
+                    });
+                }
                 if let Some(c) = parse_catch_line(trimmed)? {
                     method.catches.push(c);
                 }
@@ -325,12 +341,28 @@ pub fn parse_class_file(content: &str) -> Result<DexTxtClass, DexError> {
         // Standalone label line: `:L_00000010`
         if trimmed.starts_with(':') && !trimmed.contains(' ') && !trimmed.ends_with(':') {
             if !trimmed[1..].contains(':') {
+                if let (Some(method), Some(lab)) =
+                    (current_method.as_mut(), pending_label.take())
+                {
+                    method.insns.push(DexTxtInsn {
+                        label: Some(lab),
+                        mnemonic: ".mark".into(),
+                        operands: String::new(),
+                    });
+                }
                 pending_label = Some(trimmed.to_string());
                 continue;
             }
         }
         // Label with trailing colon only: `:Lfoo:`
         if trimmed.starts_with(':') && trimmed.ends_with(':') && trimmed.matches(':').count() == 2 {
+            if let (Some(method), Some(lab)) = (current_method.as_mut(), pending_label.take()) {
+                method.insns.push(DexTxtInsn {
+                    label: Some(lab),
+                    mnemonic: ".mark".into(),
+                    operands: String::new(),
+                });
+            }
             pending_label = Some(trimmed.trim_end_matches(':').to_string());
             continue;
         }
@@ -388,8 +420,11 @@ fn parse_annotation_block(
     };
     let mut elements = Vec::new();
     let mut consumed = 0usize;
-    for line in rest {
+    let mut i = 0usize;
+    while i < rest.len() {
+        let line = rest[i];
         consumed += 1;
+        i += 1;
         let t = line.trim();
         if t == ".end annotation" {
             return Ok((
@@ -405,7 +440,35 @@ fn parse_annotation_block(
             continue;
         }
         if let Some((name, val)) = t.split_once('=') {
-            elements.push((name.trim().to_string(), val.trim().to_string()));
+            let name = name.trim().to_string();
+            let val = val.trim();
+            if val.starts_with(".subannotation ") {
+                let mut block = val.to_string();
+                block.push('\n');
+                let mut depth = 1i32;
+                while i < rest.len() {
+                    let l = rest[i];
+                    consumed += 1;
+                    i += 1;
+                    block.push_str(l);
+                    block.push('\n');
+                    let lt = l.trim();
+                    if lt.starts_with(".subannotation ") {
+                        depth += 1;
+                    } else if lt == ".end subannotation" {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                }
+                if depth != 0 {
+                    return Err(DexError::Txt("unclosed .subannotation".into()));
+                }
+                elements.push((name, block));
+            } else {
+                elements.push((name, val.to_string()));
+            }
         }
     }
     Err(DexError::Txt("unclosed .annotation".into()))
@@ -595,11 +658,9 @@ fn parse_mnemonic_from_legacy(
 
 fn parse_mnemonic_insn(trimmed: &str, label: Option<String>) -> Result<Option<DexTxtInsn>, DexError> {
     let trimmed = trimmed.trim();
-    // Trailing `# hex` commentary must not become operands.
-    let trimmed = trimmed
-        .split_once(" #")
-        .map(|(a, _)| a.trim())
-        .unwrap_or(trimmed);
+    // Trailing ` # hex` commentary must not become operands — but `#` inside
+    // string literals (e.g. "Resource ID #0x7f") is content.
+    let trimmed = strip_trailing_hash_comment(trimmed);
     if trimmed.is_empty() || (trimmed.starts_with('.') && !trimmed.starts_with(".hex")) {
         if trimmed.starts_with(".hex ") {
             return Ok(Some(DexTxtInsn {
@@ -627,6 +688,37 @@ fn parse_mnemonic_insn(trimmed: &str, label: Option<String>) -> Result<Option<De
         mnemonic,
         operands,
     }))
+}
+
+fn strip_trailing_hash_comment(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    let mut in_str = false;
+    let mut escape = false;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' {
+            in_str = true;
+            i += 1;
+            continue;
+        }
+        if b == b'#' && (i == 0 || bytes[i - 1] == b' ') {
+            return s[..i].trim_end();
+        }
+        i += 1;
+    }
+    s
 }
 
 #[cfg(test)]

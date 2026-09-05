@@ -80,14 +80,22 @@ pub fn verify_method(method: &DexTxtMethod, class_descriptor: &str) -> Result<()
 fn label_tokens(insn: &DexTxtInsn) -> Vec<&str> {
     let mut out = Vec::new();
     let mut in_str = false;
+    let mut escape = false;
     let bytes = insn.operands.as_bytes();
     let mut start = 0usize;
     for (i, &b) in bytes.iter().enumerate() {
-        if b == b'"' {
-            in_str = !in_str;
+        if in_str {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
             continue;
         }
-        if in_str {
+        if b == b'"' {
+            in_str = true;
             continue;
         }
         let is_sep = b == b',' || b == b'{' || b == b'}' || b.is_ascii_whitespace();

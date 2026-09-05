@@ -166,6 +166,8 @@ pub struct RegType {
     pub category: Category,
     /// Present for Reference / UninitRef / UninitThis.
     pub type_desc: Option<String>,
+    /// Allocation site id for UninitRef (so `<init>` initializes all aliases).
+    pub uninit_id: Option<u32>,
 }
 
 impl fmt::Display for RegType {
@@ -173,6 +175,9 @@ impl fmt::Display for RegType {
         write!(f, "{}", Category::NAMES[self.category as usize])?;
         if let Some(ref t) = self.type_desc {
             write!(f, ",{t}")?;
+        }
+        if let Some(id) = self.uninit_id {
+            write!(f, "#{id}")?;
         }
         Ok(())
     }
@@ -183,6 +188,7 @@ impl RegType {
         Self {
             category: c,
             type_desc: None,
+            uninit_id: None,
         }
     }
 
@@ -190,13 +196,15 @@ impl RegType {
         Self {
             category: Category::Reference,
             type_desc: Some(desc.into()),
+            uninit_id: None,
         }
     }
 
-    pub fn uninit_ref(desc: impl Into<String>) -> Self {
+    pub fn uninit_ref(desc: impl Into<String>, id: u32) -> Self {
         Self {
             category: Category::UninitRef,
             type_desc: Some(desc.into()),
+            uninit_id: Some(id),
         }
     }
 
@@ -204,6 +212,7 @@ impl RegType {
         Self {
             category: Category::UninitThis,
             type_desc: Some(desc.into()),
+            uninit_id: None,
         }
     }
 
@@ -256,12 +265,19 @@ impl RegType {
         if self == other {
             return self.clone();
         }
-        // UninitRef instances never merge with each other (unique allocation sites).
+        // UninitRef: same allocation site merges; different sites conflict.
         if self.category == Category::UninitRef || other.category == Category::UninitRef {
             if self.category == Category::Unknown {
                 return other.clone();
             }
             if other.category == Category::Unknown {
+                return self.clone();
+            }
+            if self.category == Category::UninitRef
+                && other.category == Category::UninitRef
+                && self.uninit_id == other.uninit_id
+                && self.type_desc == other.type_desc
+            {
                 return self.clone();
             }
             return Self::cat(Category::Conflicted);
@@ -278,6 +294,7 @@ impl RegType {
             return Self {
                 category: Category::Reference,
                 type_desc: desc,
+                uninit_id: None,
             };
         }
         if cat == Category::UninitThis {

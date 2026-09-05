@@ -21,7 +21,7 @@ impl ManifestBuildPatch {
     }
 }
 
-/// Apply `apktool.yml` sdk/version info and CLI patches to text manifest XML.
+/// Apply `apkpatch.yml` sdk/version info and CLI patches to text manifest XML.
 pub fn patch_manifest_xml(xml: &str, meta: &ApkToolMeta, patch: &ManifestBuildPatch) -> String {
     let mut out = xml.to_string();
 

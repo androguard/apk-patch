@@ -37,7 +37,7 @@ fn decode_build_roundtrip_signed() {
     )
     .unwrap();
 
-    assert!(decode_result.output_dir.join("apktool.yml").is_file());
+    assert!(decode_result.output_dir.join("apkpatch.yml").is_file());
     assert!(decode_result.output_dir.join("AndroidManifest.xml").is_file());
     let manifest = std::fs::read_to_string(decode_result.output_dir.join("AndroidManifest.xml")).unwrap();
     assert!(manifest.starts_with("<?xml") || manifest.trim_start().starts_with("<manifest"));
@@ -305,7 +305,7 @@ fn only_manifest_decode() {
 
     assert!(out.join("AndroidManifest.xml").is_file());
     assert!(out.join("original/AndroidManifest.xml").is_file());
-    assert!(out.join("apktool.yml").is_file());
+    assert!(out.join("apkpatch.yml").is_file());
     assert!(!out.join("dex").exists());
     assert!(!out.join("classes.dex").exists());
 

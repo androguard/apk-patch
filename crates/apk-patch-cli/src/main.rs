@@ -28,10 +28,10 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Decode an APK to a project directory
+    /// Decode an APK / XAPK / APKM to a project directory
     #[command(visible_alias = "d")]
     Decode {
-        #[arg(value_name = "APK")]
+        #[arg(value_name = "APK|XAPK|APKM")]
         apk: PathBuf,
 
         #[arg(short, long)]
@@ -79,7 +79,7 @@ enum Commands {
         ignore_raw_values: bool,
     },
 
-    /// Build a project directory into a signed APK
+    /// Build a project directory into a signed APK (or XAPK/APKM when decoded from one)
     #[command(visible_alias = "b")]
     Build {
         #[arg(value_name = "DIR", default_value = ".")]

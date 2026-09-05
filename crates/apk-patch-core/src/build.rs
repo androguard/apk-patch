@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
 use apk_patch_dex::{assemble_dex_from_project, list_dex_dirs, AssembleOptions};
-use apk_patch_meta::{ApkToolMeta, META_FILENAME};
+use apk_patch_meta::ApkToolMeta;
 use apk_patch_project::{collect_build_entries, BuildEntry};
 #[cfg(feature = "aapt2")]
 use apk_patch_framework::{get_framework_apk, FrameworkOptions};
@@ -115,16 +115,13 @@ pub struct BuildResult {
     pub used_rust_arsc: bool,
 }
 
+#[cfg(feature = "native-fs")]
 pub fn build_project(project: &Path, options: &BuildOptions) -> Result<BuildResult> {
     let t_build = Instant::now();
-    let meta_path = project.join(META_FILENAME);
-    if !meta_path.is_file() {
-        return Err(BuildError::Build(format!(
-            "missing {} in {}",
-            META_FILENAME,
-            project.display()
-        )));
-    }
+    let meta_path = match apk_patch_meta::find_meta_path(project) {
+        Ok(p) => p,
+        Err(e) => return Err(BuildError::Build(e.to_string())),
+    };
 
     let meta = ApkToolMeta::load(&meta_path)?;
     let dist_dir = project.join("dist");
@@ -460,15 +457,21 @@ pub fn build_project(project: &Path, options: &BuildOptions) -> Result<BuildResu
     }
     let signed_bytes = sign_build_output(&unsigned, &options.sign)?;
 
+    let final_bytes = if meta.packageFormat.is_split_container() {
+        crate::container::pack_split_container(project, &meta, &signed_bytes)?
+    } else {
+        signed_bytes
+    };
+
     std::fs::create_dir_all(&dist_dir)?;
     if let Some(parent) = output_apk.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&output_apk, &signed_bytes)?;
+    std::fs::write(&output_apk, &final_bytes)?;
     info!(
         "I: wrote {} ({} bytes, {:.1}s total)",
         output_apk.display(),
-        signed_bytes.len(),
+        final_bytes.len(),
         t_build.elapsed().as_secs_f64()
     );
 
@@ -650,6 +653,7 @@ fn mtime(path: &Path) -> std::io::Result<SystemTime> {
 fn newest_input_mtime(project: &Path) -> Option<SystemTime> {
     let mut newest: Option<SystemTime> = None;
     let watch = [
+        "apkpatch.yml",
         "apktool.yml",
         "AndroidManifest.xml",
         "res",
@@ -658,6 +662,7 @@ fn newest_input_mtime(project: &Path) -> Option<SystemTime> {
         "lib",
         "unknown",
         "original",
+        "container",
     ];
     for name in watch {
         let path = project.join(name);

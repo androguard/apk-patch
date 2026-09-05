@@ -1,7 +1,7 @@
-//! `apktool.yml` metadata for apk-patch projects.
+//! `apkpatch.yml` project metadata for apk-patch.
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,11 +10,118 @@ pub enum MetaError {
     Io(#[from] std::io::Error),
     #[error("YAML error: {0}")]
     Yaml(#[from] serde_yaml::Error),
+    #[error("{0}")]
+    Missing(String),
 }
 
 pub type Result<T> = std::result::Result<T, MetaError>;
 
-pub const META_FILENAME: &str = "apktool.yml";
+/// Canonical project metadata filename.
+pub const META_FILENAME: &str = "apkpatch.yml";
+/// Legacy Apktool-compatible filename still accepted on load.
+pub const LEGACY_META_FILENAME: &str = "apktool.yml";
+/// Directory holding preserved XAPK/APKM members (splits, manifest.json, icons).
+pub const CONTAINER_DIR: &str = "container";
+
+/// Resolve metadata path: prefer `apkpatch.yml`, fall back to legacy `apktool.yml`.
+pub fn find_meta_path(project: &Path) -> Result<PathBuf> {
+    let modern = project.join(META_FILENAME);
+    if modern.is_file() {
+        return Ok(modern);
+    }
+    let legacy = project.join(LEGACY_META_FILENAME);
+    if legacy.is_file() {
+        return Ok(legacy);
+    }
+    Err(MetaError::Missing(format!(
+        "missing {META_FILENAME} (or legacy {LEGACY_META_FILENAME}) in {}",
+        project.display()
+    )))
+}
+
+/// VFS path for metadata (modern name first).
+pub fn find_meta_path_vfs(is_file: impl Fn(&str) -> bool, project: &str) -> Result<String> {
+    let modern = if project.is_empty() || project == "." {
+        META_FILENAME.to_string()
+    } else {
+        format!(
+            "{}/{}",
+            project.trim_end_matches('/'),
+            META_FILENAME
+        )
+    };
+    if is_file(&modern) {
+        return Ok(modern);
+    }
+    let legacy = if project.is_empty() || project == "." {
+        LEGACY_META_FILENAME.to_string()
+    } else {
+        format!(
+            "{}/{}",
+            project.trim_end_matches('/'),
+            LEGACY_META_FILENAME
+        )
+    };
+    if is_file(&legacy) {
+        return Ok(legacy);
+    }
+    Err(MetaError::Missing(format!(
+        "missing {META_FILENAME} (or legacy {LEGACY_META_FILENAME}) in {project}"
+    )))
+}
+
+/// True if `rel` is a metadata yaml that must not be packed into the APK.
+pub fn is_meta_filename(name: &str) -> bool {
+    name == META_FILENAME || name == LEGACY_META_FILENAME
+}
+/// Outer package type for decode/build.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PackageFormat {
+    #[default]
+    Apk,
+    Xapk,
+    Apkm,
+}
+
+impl PackageFormat {
+    pub fn is_split_container(self) -> bool {
+        matches!(self, Self::Xapk | Self::Apkm)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Apk => "apk",
+            Self::Xapk => "xapk",
+            Self::Apkm => "apkm",
+        }
+    }
+}
+
+/// Role of a member inside an XAPK/APKM container.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitMemberRole {
+    Base,
+    Split,
+    Meta,
+    Other,
+}
+
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SplitMember {
+    pub name: String,
+    pub role: SplitMemberRole,
+}
+
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SplitContainerMeta {
+    /// Archive path of the editable base APK (e.g. `base.apk` or `com.foo.apk`).
+    pub baseApk: String,
+    pub members: Vec<SplitMember>,
+}
 
 /// Apktool 3.x project metadata.
 #[allow(non_snake_case)]
@@ -22,6 +129,12 @@ pub const META_FILENAME: &str = "apktool.yml";
 pub struct ApkToolMeta {
     pub version: String,
     pub apkFileName: String,
+    /// `apk` (default), `xapk`, or `apkm`.
+    #[serde(default)]
+    pub packageFormat: PackageFormat,
+    /// Present when [`Self::packageFormat`] is xapk/apkm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub splitContainer: Option<SplitContainerMeta>,
     #[serde(default)]
     pub usesFramework: UsesFramework,
     #[serde(default)]
@@ -87,6 +200,8 @@ impl ApkToolMeta {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
             apkFileName: apk_file_name.into(),
+            packageFormat: PackageFormat::Apk,
+            splitContainer: None,
             usesFramework: UsesFramework::default(),
             usesLibrary: Vec::new(),
             sdkInfo: SdkInfo::default(),
@@ -102,6 +217,11 @@ impl ApkToolMeta {
         Self::from_yaml(&raw)
     }
 
+    /// Load from a project dir (`apkpatch.yml`, or legacy `apktool.yml`).
+    pub fn load_from_project(project: &Path) -> Result<Self> {
+        Self::load(&find_meta_path(project)?)
+    }
+
     pub fn from_yaml(raw: &str) -> Result<Self> {
         let mut meta: Self = serde_yaml::from_str(raw)?;
         migrate_from_v2(&mut meta, raw);
@@ -111,6 +231,11 @@ impl ApkToolMeta {
     pub fn save(&self, path: &Path) -> Result<()> {
         std::fs::write(path, self.to_yaml()?)?;
         Ok(())
+    }
+
+    /// Write canonical `apkpatch.yml` into the project directory.
+    pub fn save_to_project(&self, project: &Path) -> Result<()> {
+        self.save(&project.join(META_FILENAME))
     }
 
     pub fn to_yaml(&self) -> Result<String> {
@@ -184,11 +309,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn find_meta_prefers_modern_over_legacy() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join(LEGACY_META_FILENAME);
+        let modern = dir.path().join(META_FILENAME);
+        let meta = ApkToolMeta::new("app.apk");
+        meta.save(&legacy).unwrap();
+        assert_eq!(find_meta_path(dir.path()).unwrap(), legacy);
+        meta.save(&modern).unwrap();
+        assert_eq!(find_meta_path(dir.path()).unwrap(), modern);
+    }
+
+    #[test]
     fn roundtrip_yaml() {
         let meta = ApkToolMeta::new("app.apk");
         let yaml = serde_yaml::to_string(&meta).unwrap();
         let loaded: ApkToolMeta = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(loaded.apkFileName, "app.apk");
+        assert_eq!(loaded.packageFormat, PackageFormat::Apk);
+    }
+
+    #[test]
+    fn roundtrip_xapk_meta() {
+        let mut meta = ApkToolMeta::new("app.xapk");
+        meta.packageFormat = PackageFormat::Xapk;
+        meta.splitContainer = Some(SplitContainerMeta {
+            baseApk: "com.example.apk".into(),
+            members: vec![
+                SplitMember {
+                    name: "com.example.apk".into(),
+                    role: SplitMemberRole::Base,
+                },
+                SplitMember {
+                    name: "config.mdpi.apk".into(),
+                    role: SplitMemberRole::Split,
+                },
+                SplitMember {
+                    name: "manifest.json".into(),
+                    role: SplitMemberRole::Meta,
+                },
+            ],
+        });
+        let yaml = meta.to_yaml().unwrap();
+        let loaded = ApkToolMeta::from_yaml(&yaml).unwrap();
+        assert_eq!(loaded.packageFormat, PackageFormat::Xapk);
+        assert_eq!(
+            loaded.splitContainer.as_ref().unwrap().baseApk,
+            "com.example.apk"
+        );
     }
 
     #[test]

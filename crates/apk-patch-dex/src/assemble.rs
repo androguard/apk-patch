@@ -5,9 +5,10 @@ use std::path::Path;
 
 use dex_bytecode::{encode_instruction, format_length, get_opcode_entry, opcode_for_mnemonic, EncodeResolve};
 use dex_parser::{
-    build_debug_info, parse_value_literal, parse_visibility, simple_annotation, AnnotationItem,
-    AnnotationsDirectory, BuiltClass, BuiltCode, BuiltField, BuiltMethod, BuiltTry,
-    DebugBuilderOp, DexBuilder, EncodedValue, PoolMaps,
+    build_debug_info, parse_value_literal, parse_visibility, simple_annotation,
+    unescape_string_content, unquote_string_literal, AnnotationItem, AnnotationsDirectory,
+    BuiltClass, BuiltCode, BuiltField, BuiltMethod, BuiltTry, DebugBuilderOp, DexBuilder,
+    EncodedAnnotation, EncodedValue, PoolMaps,
 };
 use log::info;
 use walkdir::WalkDir;
@@ -256,9 +257,18 @@ fn intern_annotation(builder: &mut DexBuilder, ann: &DexTxtAnnotation) -> Result
 fn intern_value_literal(builder: &mut DexBuilder, lit: &str) -> Result<()> {
     let lit = lit.trim();
     let lit = lit.strip_prefix(".enum ").unwrap_or(lit).trim();
-    if lit.starts_with('"') && lit.ends_with('"') && lit.len() >= 2 {
-        builder.intern_string(&lit[1..lit.len() - 1]);
+    if lit.starts_with(".subannotation ") {
+        intern_subannotation(builder, lit)?;
+        return Ok(());
+    }
+    if lit.starts_with('"') {
+        let s = unquote_string_literal(lit).map_err(|e| DexError::Txt(e.to_string()))?;
+        builder.intern_string(&s);
     } else if lit.starts_with('L') && lit.ends_with(';') && !lit.contains("->") {
+        builder.intern_type(lit);
+    } else if matches!(lit, "Z" | "B" | "S" | "C" | "I" | "J" | "F" | "D" | "V")
+        || lit.starts_with('[')
+    {
         builder.intern_type(lit);
     } else if let Some((class, rest)) = lit.split_once("->") {
         builder.intern_type(class);
@@ -273,8 +283,47 @@ fn intern_value_literal(builder: &mut DexBuilder, lit: &str) -> Result<()> {
         }
     } else if lit.starts_with('{') && lit.ends_with('}') {
         let inner = &lit[1..lit.len() - 1];
-        for part in inner.split(',') {
-            intern_value_literal(builder, part.trim())?;
+        let mut start = 0usize;
+        let mut depth = 0i32;
+        let mut in_str = false;
+        let mut escape = false;
+        let bytes = inner.as_bytes();
+        let mut parts = Vec::new();
+        for (i, &b) in bytes.iter().enumerate() {
+            if in_str {
+                if escape {
+                    escape = false;
+                    continue;
+                }
+                if b == b'\\' {
+                    escape = true;
+                    continue;
+                }
+                if b == b'"' {
+                    in_str = false;
+                }
+                continue;
+            }
+            match b {
+                b'"' => in_str = true,
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                b',' if depth == 0 => {
+                    let tok = inner[start..i].trim();
+                    if !tok.is_empty() {
+                        parts.push(tok);
+                    }
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        let tok = inner[start..].trim();
+        if !tok.is_empty() {
+            parts.push(tok);
+        }
+        for part in parts {
+            intern_value_literal(builder, part)?;
         }
     } else if lit.starts_with('[') {
         builder.intern_type(lit);
@@ -282,11 +331,65 @@ fn intern_value_literal(builder: &mut DexBuilder, lit: &str) -> Result<()> {
     Ok(())
 }
 
+fn intern_subannotation(builder: &mut DexBuilder, block: &str) -> Result<()> {
+    let lines: Vec<&str> = block
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    let Some(header) = lines.first() else {
+        return Ok(());
+    };
+    let typ = header
+        .strip_prefix(".subannotation ")
+        .ok_or_else(|| DexError::Txt(format!("bad subannotation: {header}")))?
+        .trim();
+    builder.intern_type(typ);
+    let mut i = 1usize;
+    while i < lines.len() {
+        if lines[i] == ".end subannotation" {
+            break;
+        }
+        if let Some((name, val)) = lines[i].split_once('=') {
+            builder.intern_string(name.trim());
+            let val = val.trim();
+            if val.starts_with(".subannotation ") {
+                let mut nested = val.to_string();
+                nested.push('\n');
+                i += 1;
+                let mut depth = 1i32;
+                while i < lines.len() {
+                    nested.push_str(lines[i]);
+                    nested.push('\n');
+                    if lines[i].starts_with(".subannotation ") {
+                        depth += 1;
+                    } else if lines[i] == ".end subannotation" {
+                        depth -= 1;
+                        i += 1;
+                        if depth == 0 {
+                            break;
+                        }
+                        continue;
+                    }
+                    i += 1;
+                }
+                intern_subannotation(builder, &nested)?;
+            } else {
+                intern_value_literal(builder, val)?;
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    Ok(())
+}
+
 fn intern_operand_refs(builder: &mut DexBuilder, operands: &str) -> Result<()> {
     for tok in tokenize_refs(operands) {
         if tok.starts_with('"') {
-            let inner = tok.trim_matches('"');
-            builder.intern_string(inner);
+            let s = unquote_string_literal(tok).map_err(|e| DexError::Txt(e.to_string()))?;
+            builder.intern_string(&s);
         } else if let Some((class, rest)) = tok.split_once("->") {
             // Method or field ref on any type descriptor (L...; or [J or [L...;)
             if rest.contains('(') {
@@ -319,11 +422,22 @@ fn tokenize_refs(operands: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0usize;
     let mut in_str = false;
+    let mut escape = false;
     let bytes = operands.as_bytes();
     for (i, &b) in bytes.iter().enumerate() {
+        if in_str {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
         if b == b'"' {
-            in_str = !in_str;
-        } else if b == b',' && !in_str {
+            in_str = true;
+        } else if b == b',' {
             let tok = operands[start..i].trim();
             if !tok.is_empty() {
                 out.push(tok);
@@ -344,11 +458,24 @@ struct MapsResolve<'a> {
 
 impl EncodeResolve for MapsResolve<'_> {
     fn resolve_string(&self, s: &str) -> std::result::Result<u32, dex_bytecode::DexError> {
+        let key = if s.starts_with('"') {
+            unquote_string_literal(s).map_err(|e| {
+                dex_bytecode::DexError::invalid_owned(e.to_string())
+            })?
+        } else if s.contains('\\') {
+            unescape_string_content(s).map_err(|e| {
+                dex_bytecode::DexError::invalid_owned(e.to_string())
+            })?
+        } else {
+            s.to_string()
+        };
         self.maps
             .string_idx
-            .get(s)
+            .get(&key)
             .copied()
-            .ok_or_else(|| dex_bytecode::DexError::invalid_owned(format!("string not in pool: {s}")))
+            .ok_or_else(|| {
+                dex_bytecode::DexError::invalid_owned(format!("string not in pool: {key}"))
+            })
     }
     fn resolve_type(&self, s: &str) -> std::result::Result<u32, dex_bytecode::DexError> {
         self.maps
@@ -474,9 +601,13 @@ fn build_class(class: &DexTxtClass, resolve: &MapsResolve, maps: &PoolMaps) -> R
 
 fn resolve_value_lit(lit: &str, maps: &PoolMaps) -> Result<EncodedValue> {
     let lit = lit.trim();
+    if lit.starts_with(".subannotation ") {
+        return resolve_subannotation(lit, maps);
+    }
     if lit.starts_with("method@")
         || lit.starts_with("field@")
         || lit.starts_with("enum@")
+        || lit.starts_with("type@")
         || lit.starts_with("method_type@")
         || lit.starts_with("method_handle@")
     {
@@ -492,6 +623,17 @@ fn resolve_value_lit(lit: &str, maps: &PoolMaps) -> Result<EncodedValue> {
             .copied()
             .ok_or_else(|| DexError::Txt(format!("enum field not in pool: {rest}")))?;
         return Ok(EncodedValue::Enum(idx));
+    }
+    // Quoted strings may contain `->` / `(` (e.g. Kotlin deprecation messages);
+    // never treat them as method/field refs.
+    if lit.starts_with('"') {
+        let s = unquote_string_literal(lit).map_err(|e| DexError::Txt(e.to_string()))?;
+        let idx = maps
+            .string_idx
+            .get(&s)
+            .copied()
+            .ok_or_else(|| DexError::Txt(format!("string value not in pool: {s}")))?;
+        return Ok(EncodedValue::String(idx));
     }
     if lit.contains("->") {
         if lit.contains('(') {
@@ -537,6 +679,73 @@ fn resolve_value_lit(lit: &str, maps: &PoolMaps) -> Result<EncodedValue> {
         return Err(DexError::Txt(e));
     }
     Ok(v)
+}
+
+fn resolve_subannotation(block: &str, maps: &PoolMaps) -> Result<EncodedValue> {
+    let lines: Vec<&str> = block
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    let header = lines
+        .first()
+        .ok_or_else(|| DexError::Txt("empty .subannotation".into()))?;
+    let typ = header
+        .strip_prefix(".subannotation ")
+        .ok_or_else(|| DexError::Txt(format!("bad subannotation header: {header}")))?
+        .trim();
+    let type_idx = maps
+        .type_idx
+        .get(typ)
+        .copied()
+        .ok_or_else(|| DexError::Txt(format!("subannotation type not in pool: {typ}")))?;
+    let mut elements = Vec::new();
+    let mut i = 1usize;
+    while i < lines.len() {
+        if lines[i] == ".end subannotation" {
+            break;
+        }
+        let Some((name, val)) = lines[i].split_once('=') else {
+            i += 1;
+            continue;
+        };
+        let name = name.trim();
+        let name_idx = maps
+            .string_idx
+            .get(name)
+            .copied()
+            .ok_or_else(|| DexError::Txt(format!("subannotation name not in pool: {name}")))?;
+        let val = val.trim();
+        if val.starts_with(".subannotation ") {
+            let mut nested = val.to_string();
+            nested.push('\n');
+            i += 1;
+            let mut depth = 1i32;
+            while i < lines.len() {
+                nested.push_str(lines[i]);
+                nested.push('\n');
+                if lines[i].starts_with(".subannotation ") {
+                    depth += 1;
+                } else if lines[i] == ".end subannotation" {
+                    depth -= 1;
+                    i += 1;
+                    if depth == 0 {
+                        break;
+                    }
+                    continue;
+                }
+                i += 1;
+            }
+            elements.push((name_idx, resolve_subannotation(&nested, maps)?));
+        } else {
+            elements.push((name_idx, resolve_value_lit(val, maps)?));
+            i += 1;
+        }
+    }
+    Ok(EncodedValue::Annotation(EncodedAnnotation {
+        type_idx,
+        elements,
+    }))
 }
 
 fn build_txt_annotation(ann: &DexTxtAnnotation, maps: &PoolMaps) -> Result<AnnotationItem> {
@@ -662,28 +871,59 @@ fn assemble_method_code(
 fn rewrite_p_regs(operands: &str, registers: u16, ins_size: u16) -> String {
     let base = registers.saturating_sub(ins_size);
     let mut out = String::with_capacity(operands.len());
-    let mut chars = operands.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == 'p' {
-            let mut num = String::new();
-            while let Some(d) = chars.peek().copied().filter(|d| d.is_ascii_digit()) {
-                num.push(d);
-                chars.next();
+    let chars: Vec<char> = operands.chars().collect();
+    let mut i = 0usize;
+    let mut in_str = false;
+    let mut escape = false;
+    while i < chars.len() {
+        let c = chars[i];
+        if in_str {
+            out.push(c);
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_str = false;
             }
-            if !num.is_empty() {
-                if let Ok(n) = num.parse::<u16>() {
-                    out.push('v');
-                    out.push_str(&(base + n).to_string());
-                    continue;
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            in_str = true;
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        if c == 'p' {
+            // Only rewrite standalone pN register tokens — not `p0` inside
+            // names like `$r8$lambda$…Cup0…`, and not Facebook-style types
+            // like `LX/p90;` (where `/` looks like a token boundary).
+            let at_token_start = i == 0 || is_reg_token_boundary(chars[i - 1]);
+            if at_token_start {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].is_ascii_digit() {
+                    j += 1;
+                }
+                if j > i + 1 && (j == chars.len() || is_reg_token_boundary(chars[j])) {
+                    let num: String = chars[i + 1..j].iter().collect();
+                    if let Ok(n) = num.parse::<u16>() {
+                        out.push('v');
+                        out.push_str(&(base + n).to_string());
+                        i = j;
+                        continue;
+                    }
                 }
             }
-            out.push('p');
-            out.push_str(&num);
-        } else {
-            out.push(c);
         }
+        out.push(c);
+        i += 1;
     }
     out
+}
+
+fn is_reg_token_boundary(c: char) -> bool {
+    c.is_whitespace() || matches!(c, ',' | '{' | '}' | '(' | ')' | '.')
 }
 
 fn encode_insns(
@@ -698,7 +938,9 @@ fn encode_insns(
         if let Some(ref lab) = insn.label {
             label_units.insert(lab.clone(), unit);
         }
-        let units = if insn.mnemonic.starts_with(".hex") {
+        let units = if insn.mnemonic == ".mark" {
+            0
+        } else if insn.mnemonic.starts_with(".hex") {
             let bytes = hex_decode(&insn.operands)?;
             (bytes.len() as u32) / 2
         } else if matches!(
@@ -724,7 +966,9 @@ fn encode_insns(
     let mut out = Vec::new();
     let mut here = 0u32;
     for (i, insn) in insns.iter().enumerate() {
-        if insn.mnemonic.starts_with(".hex") {
+        if insn.mnemonic == ".mark" {
+            // Zero-size exclusive try-end / catch label marker; no bytes.
+        } else if insn.mnemonic.starts_with(".hex") {
             out.extend(hex_decode(&insn.operands)?);
         } else if matches!(
             insn.mnemonic.as_str(),
@@ -770,7 +1014,9 @@ fn find_switch_bases(
                 }
             }
         }
-        let units = if insn.mnemonic.starts_with(".hex") {
+        let units = if insn.mnemonic == ".mark" {
+            0
+        } else if insn.mnemonic.starts_with(".hex") {
             hex_decode(&insn.operands)
                 .map(|b| (b.len() as u32) / 2)
                 .unwrap_or(0)
@@ -942,6 +1188,113 @@ fn build_debug_ops(method: &DexTxtMethod, maps: &PoolMaps) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewrite_p_regs_skips_names_containing_p_digits() {
+        // .registers 3, 2 ins → p0→v1, p1→v2
+        let ops = "v0, v1, LFoo;->$r8$lambda$Cup0X(LFoo;Ljava/lang/String;)V";
+        let out = rewrite_p_regs(ops, 3, 2);
+        assert!(out.contains("Cup0X"), "corrupted method name: {out}");
+        assert_eq!(out, ops);
+        assert_eq!(rewrite_p_regs("p0, p1, LFoo;->x:I", 3, 2), "v1, v2, LFoo;->x:I");
+        assert_eq!(
+            rewrite_p_regs("p0, \"has p0 inside\"", 3, 2),
+            "v1, \"has p0 inside\""
+        );
+        // Facebook-style short class names that look like p-registers.
+        assert_eq!(
+            rewrite_p_regs("v0, LX/p90;", 40, 2),
+            "v0, LX/p90;",
+            "must not rewrite type LX/p90;"
+        );
+        assert_eq!(
+            rewrite_p_regs("{p0, p1}, LX/p90;-><init>()V", 5, 2),
+            "{v3, v4}, LX/p90;-><init>()V"
+        );
+        assert_eq!(rewrite_p_regs("p0 .. p2", 6, 3), "v3 .. v5");
+    }
+
+    #[test]
+    fn const_string_quote_and_space_quote_roundtrip() {
+        // Strings whose content is `"` or ` "` used to break via trim_matches('"').
+        let txt = r#"
+.class public LHello;
+.super Ljava/lang/Object;
+
+.method public static foo()V
+    .registers 1
+    const-string v0, "\""
+    const-string v0, " \""
+    const-string v0, "\":"
+    return-void
+.end method
+"#;
+        let class = parse_class_file(txt).unwrap();
+        assemble_classes(&[class]).unwrap();
+    }
+
+    #[test]
+    fn const_string_backslash_roundtrip() {
+        let txt = r#"
+.class public LHello;
+.super Ljava/lang/Object;
+
+.method public static foo()V
+    .registers 1
+    const-string v0, "\\"
+    const-string v0, "\n"
+    return-void
+.end method
+"#;
+        let class = parse_class_file(txt).unwrap();
+        assemble_classes(&[class]).unwrap();
+    }
+
+    #[test]
+    fn exclusive_catch_end_past_last_insn() {
+        // Exclusive try-end may sit past the last instruction (code_size).
+        // Bare `:L_end` becomes a zero-size `.mark` so pool/tries resolve.
+        let txt = r#"
+.class public LTryEnd;
+.super Ljava/lang/Object;
+
+.method public run()V
+    .registers 2
+    :L_handler
+    move-exception v0
+    return-void
+    :L_start
+    const/4 v0, 0x0
+    throw v0
+    :L_end
+    .catch Ljava/lang/Throwable; { :L_start .. :L_end } :L_handler
+.end method
+"#;
+        let class = parse_class_file(txt).unwrap();
+        let method = &class.methods[0];
+        assert!(
+            method.insns.iter().any(|i| {
+                i.label.as_deref() == Some(":L_end") && i.mnemonic == ".mark"
+            }),
+            "expected zero-size .mark for exclusive end: {:?}",
+            method.insns
+        );
+        assemble_classes(&[class]).unwrap();
+    }
+
+    #[test]
+    fn annotation_string_with_arrow_not_method_ref() {
+        let txt = r#"
+.class public LDep;
+.super Ljava/lang/Object;
+
+.annotation runtime Lkotlin/Deprecated;
+    message = "Use 'catch { e -> if (predicate(e)) emit(fallback) else throw e }'"
+.end annotation
+"#;
+        let class = parse_class_file(txt).unwrap();
+        assemble_classes(&[class]).unwrap();
+    }
 
     #[test]
     fn assemble_minimal_class_from_txt() {

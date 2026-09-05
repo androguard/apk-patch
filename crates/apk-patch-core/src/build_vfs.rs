@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use apk_patch_dex::{assemble_dex_from_vfs, list_dex_dirs_vfs, AssembleOptions};
-use apk_patch_meta::{ApkToolMeta, META_FILENAME};
+use apk_patch_meta::ApkToolMeta;
 use apk_patch_project::{collect_build_entries_vfs, BuildEntry};
 use apk_patch_resources::{build_arsc_from_vfs, BuildArscOptions};
 use apk_patch_sign::sign_build_output;
@@ -53,12 +53,8 @@ pub fn build_project_vfs(
     options: &BuildOptions,
 ) -> Result<(Vec<u8>, BuildResult)> {
     let t_build = Tick::now();
-    let meta_path = join_vfs(project, META_FILENAME);
-    if !vfs.is_file(&meta_path) {
-        return Err(BuildError::Build(format!(
-            "missing {META_FILENAME} in {project}"
-        )));
-    }
+    let meta_path = apk_patch_meta::find_meta_path_vfs(|p| vfs.is_file(p), project)
+        .map_err(|e| BuildError::Build(e.to_string()))?;
 
     let meta = ApkToolMeta::from_yaml(
         &vfs
@@ -120,14 +116,14 @@ pub fn build_project_vfs(
     let mut used_rust_arsc = false;
     let mut rebuilt_arsc: Option<Vec<u8>> = None;
     let res_dir = join_vfs(project, "res");
-    let can_rebuild = !options.skip_aapt2
-        && !options.copy_original
+    // Pure-Rust rebuild does not need aapt2. `skip_aapt2` only blocks host aapt2.
+    let can_rebuild = !options.copy_original
         && vfs.is_dir(&res_dir)
         && vfs.is_file(&join_vfs(&res_dir, "values/public.xml"));
-    let want_rebuild = options.use_aapt2 || options.rebuild_resources;
+    let want_rebuild = options.rebuild_resources || (options.use_aapt2 && !options.skip_aapt2);
 
     // aapt2 is native-only; in VFS/WASM builds we never spawn it.
-    if can_rebuild && options.use_aapt2 {
+    if can_rebuild && options.use_aapt2 && !options.skip_aapt2 {
         warn!("W: aapt2 not available in VFS/WASM build path; trying pure-Rust ARSC builder");
     }
 
