@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-axml-parser = { path = "../../../axml-parser" }
+axml-parser = { workspace = true }
 apk-patch-vfs = { path = "../apk-patch-vfs", default-features = false }
 thiserror = { workspace = true }
 png = "0.17"

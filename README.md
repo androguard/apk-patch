@@ -18,8 +18,8 @@ Pure Rust APK pack / unpack / patch tool — Apktool-like workflow on the
 
 ### Build the binary
 
-Path dependencies expect sibling Androguard crates under `../`
-(`apk-parser`, `dex-parser`, …).
+Androguard dependencies (`apkparser`, `axml-parser`, `dex-parser`, `dex-bytecode`)
+are pulled from GitHub — no sibling checkouts required.
 
 ```bash
 cargo build -p apk-patch-cli --release
@@ -124,8 +124,6 @@ cd crates/apk-patch-py
 maturin develop --release
 # or: maturin build --release  → wheel under target/wheels/
 ```
-
-Same sibling-crate layout as the CLI (`../apk-parser`, …).
 
 ### API
 
@@ -363,10 +361,8 @@ WASM / browser: depend with `default-features = false`. Signing uses an embedded
 
 ## Documentation
 
-- [Implementation plan](./docs/PLAN.md)
 - [DEX text format](./docs/DEX-TXT.md)
-- [Apktool parity checklist](./docs/PARITY.md)
-- [Internals](./docs/INTERNALS.html)
+- [Internals](./docs/INTERNALS.md)
 
 ## License
 

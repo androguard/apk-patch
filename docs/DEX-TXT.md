@@ -3,8 +3,8 @@
 > **Status:** Editable assemble-from-scratch contract (mnemonic-first).
 
 dex-txt is the human-readable text representation of DEX used by apk-patch.
-It is emitted from and assembled into DEX via [`dex-parser`](../../dex-parser/dexparser-rs)
-and [`dex-bytecode`](../../dex-bytecode/dex-bytecode).
+It is emitted from and assembled into DEX via [`dex-parser`](https://github.com/androguard/dex-parser)
+and [`dex-bytecode`](https://github.com/androguard/dex-bytecode).
 
 This format is **not** smali. Instruction mnemonics match dex-bytecode disassembly.
 
@@ -184,6 +184,6 @@ Constant-pool indices are **not** stable across rebuilds.
 
 ## Related
 
-- [Implementation plan](./PLAN.md)
-- [`dex-bytecode`](../../dex-bytecode/dex-bytecode) — decode + encode
-- [`dex-parser`](../../dex-parser/dexparser-rs) — parse + `DexBuilder`
+- [Internals](./INTERNALS.md)
+- [`dex-bytecode`](https://github.com/androguard/dex-bytecode) — decode + encode
+- [`dex-parser`](https://github.com/androguard/dex-parser) — parse + `DexBuilder`

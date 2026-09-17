@@ -13,7 +13,7 @@ apk-patch-dex = { path = "../apk-patch-dex", default-features = false }
 apk-patch-framework = { path = "../apk-patch-framework" }
 apk-patch-resources = { path = "../apk-patch-resources", default-features = false }
 apk-patch-vfs = { path = "../apk-patch-vfs", default-features = false }
-axml-parser = { path = "../../../axml-parser" }
+axml-parser = { workspace = true }
 apkparser = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
@@ -36,5 +36,5 @@ apk-patch-framework = { path = "../apk-patch-framework" }
 apk-patch-meta = { path = "../apk-patch-meta" }
 apkparser = { workspace = true }
 tempfile = "3.10"
-dex-parser = { path = "../../../dex-parser/dexparser-rs" }
+dex-parser = { workspace = true }
 walkdir = { workspace = true }
