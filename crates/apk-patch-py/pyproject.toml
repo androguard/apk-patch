@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "apk-patch"
+version = "0.1.0"
+description = "Python bindings for apk-patch: decode/build Android APKs in memory"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "apk_patch"

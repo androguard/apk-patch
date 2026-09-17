@@ -1,0 +1,833 @@
+<title>Apk-Patch Internals</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg:#f6f2e9;
+    --surface:#fffdf8;
+    --surface-2:#eee4cd;
+    --border:#ddd0b0;
+    --text:#221c11;
+    --text-dim:#6d6046;
+    --text-faint:#948569;
+    --accent:#a15c1f;
+    --accent-soft:#f0dcb8;
+    --domain-host:#33608f;
+    --domain-host-soft:#dce7f1;
+    --domain-device:#a15c1f;
+    --domain-device-soft:#f0dcb8;
+    --domain-agent:#4c7a3f;
+    --domain-agent-soft:#dfebd6;
+    --code-bg:#efe4c9;
+    --shadow:0 1px 2px rgba(40,28,10,.07), 0 10px 28px -14px rgba(40,28,10,.22);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#17130e;
+      --surface:#1e1811;
+      --surface-2:#251e15;
+      --border:#3c3020;
+      --text:#f0e7d5;
+      --text-dim:#b7a686;
+      --text-faint:#8c7d61;
+      --accent:#e2934f;
+      --accent-soft:#3a2916;
+      --domain-host:#83aad9;
+      --domain-host-soft:#212e3d;
+      --domain-device:#e2934f;
+      --domain-device-soft:#3a2916;
+      --domain-agent:#96c184;
+      --domain-agent-soft:#212f1c;
+      --code-bg:#241c12;
+      --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px -14px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#17130e;
+    --surface:#1e1811;
+    --surface-2:#251e15;
+    --border:#3c3020;
+    --text:#f0e7d5;
+    --text-dim:#b7a686;
+    --text-faint:#8c7d61;
+    --accent:#e2934f;
+    --accent-soft:#3a2916;
+    --domain-host:#83aad9;
+    --domain-host-soft:#212e3d;
+    --domain-device:#e2934f;
+    --domain-device-soft:#3a2916;
+    --domain-agent:#96c184;
+    --domain-agent-soft:#212f1c;
+    --code-bg:#241c12;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px -14px rgba(0,0,0,.55);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  code, pre, .mono, .fig-label, .tag{
+    font-family:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  }
+  h1,h2,h3{
+    font-family:"IBM Plex Sans",sans-serif;
+    font-weight:700;
+    text-wrap:balance;
+    color:var(--text);
+    margin:0;
+  }
+  a{color:var(--accent);}
+  p{margin:0 0 1em 0; max-width:66ch;}
+  section p:last-child{margin-bottom:0;}
+
+  .page{max-width:1240px; margin:0 auto; padding:0 28px 90px;}
+
+  /* ---------- Masthead ---------- */
+  .masthead{
+    padding:56px 0 30px;
+    border-bottom:1px solid var(--border);
+    display:flex; flex-direction:column; gap:26px;
+  }
+  .wordmark{display:flex; align-items:center; gap:18px;}
+  .glyph{
+    width:56px; height:56px; flex:none;
+    border-radius:14px;
+    background:linear-gradient(155deg, var(--domain-device-soft), var(--domain-agent-soft));
+    border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:var(--shadow);
+  }
+  .glyph svg{width:30px; height:30px;}
+  .wordmark h1{font-size:2.6rem; letter-spacing:-0.02em;}
+  .tagline{margin:.2em 0 0; color:var(--text-dim); font-size:1.05rem; max-width:58ch;}
+  .meta-strip{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:1px;
+    background:var(--border); border:1px solid var(--border); border-radius:12px; overflow:hidden;
+    margin:0;
+  }
+  .meta-strip div{background:var(--surface); padding:14px 18px;}
+  .meta-strip dt{font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); margin:0 0 4px;}
+  .meta-strip dd{margin:0; font-size:.95rem; font-weight:500;}
+  .meta-strip dd.mono{font-family:"IBM Plex Mono",monospace; font-size:.88rem;}
+
+  .legend-strip{
+    display:flex; flex-wrap:wrap; gap:10px 22px;
+    padding:16px 20px; margin:26px 0 0;
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  }
+  .legend-item{display:flex; align-items:baseline; gap:8px; font-size:.88rem; color:var(--text-dim);}
+  .dot{width:10px; height:10px; border-radius:50%; display:inline-block; flex:none; position:relative; top:1px;}
+  .dot.host{background:var(--domain-host);}
+  .dot.device{background:var(--domain-device);}
+  .dot.agent{background:var(--domain-agent);}
+  .legend-item b{color:var(--text); font-weight:600;}
+
+  .tag{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:.68rem; text-transform:uppercase; letter-spacing:.06em;
+    padding:3px 8px; border-radius:999px; border:1px solid transparent; white-space:nowrap;
+    font-family:"IBM Plex Mono",monospace; font-weight:500;
+  }
+  .tag.host{background:var(--domain-host-soft); color:var(--domain-host); border-color:var(--domain-host-soft);}
+  .tag.device{background:var(--domain-device-soft); color:var(--domain-device); border-color:var(--domain-device-soft);}
+  .tag.agent{background:var(--domain-agent-soft); color:var(--domain-agent); border-color:var(--domain-agent-soft);}
+  .tag.ext{background:transparent; color:var(--text-faint); border-color:var(--border);}
+
+  /* ---------- layout ---------- */
+  .layout{display:grid; grid-template-columns:230px minmax(0,1fr); gap:48px; margin-top:36px; align-items:start;}
+  .toc{position:sticky; top:24px;}
+  .toc h2{font-size:.72rem; text-transform:uppercase; letter-spacing:.09em; color:var(--text-faint); margin-bottom:12px; font-weight:600;}
+  .toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; counter-reset:sec;}
+  .toc a{
+    display:block; padding:7px 10px; border-radius:8px;
+    color:var(--text-dim); text-decoration:none; font-size:.87rem;
+    border-left:2px solid transparent;
+  }
+  .toc a:hover{background:var(--surface); color:var(--text);}
+  .toc a .n{font-family:"IBM Plex Mono",monospace; color:var(--text-faint); margin-right:6px;}
+
+  main{min-width:0;}
+  section{padding:46px 0; border-bottom:1px solid var(--border);}
+  section:last-of-type{border-bottom:none;}
+  .kicker{
+    font-family:"IBM Plex Mono",monospace; font-size:.78rem; color:var(--accent);
+    text-transform:uppercase; letter-spacing:.08em; margin:0 0 8px;
+  }
+  h2.htitle{font-size:1.7rem; margin-bottom:6px;}
+  .subtitle{color:var(--text-dim); font-size:1rem; margin:0 0 26px; max-width:62ch;}
+  h3{font-size:1.12rem; margin:30px 0 10px;}
+  h3:first-child{margin-top:0;}
+
+  .prose{max-width:68ch;}
+
+  /* ---------- figures ---------- */
+  figure{margin:26px 0 30px; padding:0;}
+  .fig-frame{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:20px 18px 14px; box-shadow:var(--shadow); overflow-x:auto;
+  }
+  figure svg{display:block; width:100%; height:auto; min-width:560px;}
+  figcaption{margin-top:10px; font-size:.87rem; color:var(--text-dim); max-width:68ch;}
+  figcaption b{color:var(--text); font-weight:600;}
+  .fig-label{font-size:9.5px;}
+
+  /* ---------- code blocks ---------- */
+  pre.code{
+    background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:14px 16px; overflow-x:auto; font-size:.85rem; line-height:1.6;
+    color:var(--text); margin:16px 0;
+  }
+  code.inline{
+    background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.1em .4em; font-size:.85em;
+  }
+  .cmt{color:var(--text-faint);}
+
+  /* ---------- tables ---------- */
+  .table-wrap{overflow-x:auto; margin:18px 0 8px;}
+  table.ref{border-collapse:collapse; width:100%; min-width:560px; font-size:.9rem;}
+  table.ref th{
+    text-align:left; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--text-faint); font-weight:600; padding:0 12px 8px; border-bottom:1px solid var(--border);
+  }
+  table.ref td{padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:top;}
+  table.ref tr:last-child td{border-bottom:none;}
+  table.ref td.mono-cell{font-size:.84rem; white-space:nowrap;}
+  table.ref td.dim{color:var(--text-dim);}
+  table.ref td.center{text-align:center;}
+
+  .callout{
+    background:var(--accent-soft); border:1px solid var(--border); border-left:3px solid var(--accent);
+    border-radius:0 10px 10px 0; padding:14px 18px; margin:20px 0; font-size:.92rem; color:var(--text);
+  }
+  .callout b{color:var(--accent);}
+
+  footer{padding:46px 0 0; color:var(--text-faint); font-size:.85rem;}
+  footer a{color:var(--text-dim);}
+
+  @media (max-width: 880px){
+    .layout{grid-template-columns:1fr;}
+    .toc{position:static; min-width:0;}
+    .toc ol{flex-direction:row; flex-wrap:nowrap; overflow-x:auto; gap:4px; padding-bottom:6px;}
+    .toc a{white-space:nowrap;}
+    .meta-strip{grid-template-columns:repeat(2,1fr);}
+    .wordmark h1{font-size:2.1rem;}
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="wordmark">
+      <span class="glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--domain-device)" stroke-width="1.6">
+          <path d="M12 3 L21 7.5 L21 16.5 L12 21 L3 16.5 L3 7.5 Z" stroke="var(--domain-agent)"/>
+          <path d="M3 7.5 L12 12 L21 7.5 M12 12 L12 21" stroke="var(--domain-device)"/>
+        </svg>
+      </span>
+      <div>
+        <h1>apk-patch</h1>
+        <p class="tagline">A pure-Rust Apktool — how decode and build turn an APK into an editable tree and back into a signed APK, without smali or a JVM.</p>
+      </div>
+    </div>
+    <dl class="meta-strip">
+      <div><dt>What it is</dt><dd>APK pack/unpack/patch<br>functional Apktool equivalent</dd></div>
+      <div><dt>Workspace</dt><dd>Rust, 9 crates<br>+ 4 sibling Androguard crates</dd></div>
+      <div><dt>Version</dt><dd class="mono">0.1.0</dd></div>
+      <div><dt>Core techniques</dt><dd>dex-txt, not smali · pure-Rust ARSC builder · VFS-generic core · v2/v3 signing</dd></div>
+    </dl>
+    <div class="legend-strip" role="note" aria-label="Pipeline legend">
+      <span class="legend-item"><span class="dot host"></span><b>Decode</b> — APK → editable project tree</span>
+      <span class="legend-item"><span class="dot device"></span><b>Build</b> — project tree → signed APK</span>
+      <span class="legend-item"><span class="dot agent"></span><b>Core / shared</b> — the orchestration and format crates both directions run through</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="Sections">
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#s1"><span class="n">01</span>Decode ⇄ build</a></li>
+        <li><a href="#s2"><span class="n">02</span>Workspace architecture</a></li>
+        <li><a href="#s3"><span class="n">03</span>Decode pipeline</a></li>
+        <li><a href="#s4"><span class="n">04</span>dex-txt format</a></li>
+        <li><a href="#s5"><span class="n">05</span>Build pipeline</a></li>
+        <li><a href="#s6"><span class="n">06</span>Resources &amp; signing</a></li>
+        <li><a href="#s7"><span class="n">07</span>Native vs in-memory</a></li>
+        <li><a href="#s8"><span class="n">08</span>inject-goauld</a></li>
+        <li><a href="#s9"><span class="n">09</span>CLI reference</a></li>
+        <li><a href="#s10"><span class="n">10</span>Parity with Apktool</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <!-- ================= SECTION 1 ================= -->
+      <section id="s1">
+        <p class="kicker">01 — The whole tool in one round trip</p>
+        <h2 class="htitle">Decode ⇄ build</h2>
+        <p class="subtitle">Same shape as Apktool — unpack to an editable tree, edit, repack — but the code inside that tree is text, not smali, and the repacked APK is signed unless you say otherwise.</p>
+
+        <div class="prose">
+          <p>Everything else in this document is detail underneath one of two verbs. <code class="inline">decode</code> takes an APK (or an <code class="inline">.xapk</code> / <code class="inline">.apkm</code> split container) and produces a directory you can edit by hand: DEX disassembled to <a href="#s4">dex-txt</a>, the manifest as text XML, resources under <code class="inline">res/</code>. <code class="inline">build</code> walks that same directory back into a fresh, signed APK. Nothing in between requires a JVM, `aapt`, or a smali toolchain — both directions are pure Rust, and both share one orchestration core parameterized over a <a href="#s7">virtual filesystem</a> so the same logic runs against real disk or in-memory bytes.</p>
+        </div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 900 320" role="img" aria-label="An input APK is decoded into an editable project directory containing dex-txt, a text AndroidManifest.xml, and a res tree; after editing, build walks that directory back into a signed output APK.">
+              <defs>
+                <marker id="ph" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--domain-host)"/>
+                </marker>
+                <marker id="pd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--domain-device)"/>
+                </marker>
+                <marker id="pa" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--domain-agent)"/>
+                </marker>
+              </defs>
+
+              <rect x="30" y="115" width="150" height="90" rx="10" fill="var(--surface)" stroke="var(--border)" stroke-width="1.4"/>
+              <text x="105" y="152" text-anchor="middle" font-size="14" font-weight="700" fill="var(--text)">app.apk</text>
+              <text x="105" y="172" text-anchor="middle" class="fig-label" fill="var(--text-dim)">original</text>
+
+              <rect x="370" y="65" width="220" height="180" rx="12" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.5"/>
+              <text x="480" y="92" text-anchor="middle" font-size="14" font-weight="700" fill="var(--text)">project/</text>
+              <text x="480" y="110" text-anchor="middle" class="fig-label" fill="var(--text-dim)">editable tree</text>
+              <line x1="390" y1="122" x2="570" y2="122" stroke="var(--border)"/>
+              <text x="480" y="142" text-anchor="middle" class="fig-label" fill="var(--text-dim)">dex/ — dex-txt (§04)</text>
+              <text x="480" y="160" text-anchor="middle" class="fig-label" fill="var(--text-dim)">AndroidManifest.xml — text</text>
+              <text x="480" y="178" text-anchor="middle" class="fig-label" fill="var(--text-dim)">res/, assets/, lib/</text>
+              <text x="480" y="196" text-anchor="middle" class="fig-label" fill="var(--text-dim)">original/, unknown/</text>
+              <text x="480" y="222" text-anchor="middle" class="fig-label" fill="var(--domain-agent)" font-weight="600">↑ you edit here</text>
+
+              <rect x="720" y="115" width="150" height="90" rx="10" fill="var(--surface)" stroke="var(--domain-device)" stroke-width="1.6"/>
+              <text x="795" y="152" text-anchor="middle" font-size="14" font-weight="700" fill="var(--text)">app.apk</text>
+              <text x="795" y="172" text-anchor="middle" class="fig-label" fill="var(--domain-device)" font-weight="600">signed by default</text>
+
+              <path d="M182,150 C260,140 300,110 368,120" fill="none" stroke="var(--domain-host)" stroke-width="1.8" marker-end="url(#ph)"/>
+              <text x="270" y="118" text-anchor="middle" class="fig-label" fill="var(--domain-host)">decode (§03)</text>
+
+              <path d="M592,140 C650,140 680,150 718,155" fill="none" stroke="var(--domain-device)" stroke-width="1.8" marker-end="url(#pd)"/>
+              <text x="655" y="122" text-anchor="middle" class="fig-label" fill="var(--domain-device)">build (§05)</text>
+
+              <line x1="30" y1="270" x2="870" y2="270" stroke="var(--border)"/>
+              <text x="30" y="296" font-size="11.5" fill="var(--text-dim)">Apktool: smali, output left unsigned.  apk-patch: dex-txt, output signed v2+v3 by default (v1 currently off — §06).</text>
+            </svg>
+          </div>
+          <figcaption><b>Fig. 1 —</b> the two commands are symmetric around one editable directory; a second <code class="inline">build</code> with no source changes is a near no-op unless <code class="inline">-f</code> forces it.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================= SECTION 2 ================= -->
+      <section id="s2">
+        <p class="kicker">02 — Workspace</p>
+        <h2 class="htitle">Nine crates, four borrowed foundations</h2>
+        <p class="subtitle">apk-patch is thin: it orchestrates and adds the dex-txt / ARSC-builder / signing pieces Apktool would get from Java tooling, and leans on sibling Androguard crates for everything structural.</p>
+
+        <div class="prose">
+          <p><code class="inline">apk-patch-cli</code> is a clap parser and nothing else. <code class="inline">apk-patch-core</code> is the only place that knows the full decode/build sequence, and it's written once against a <code class="inline">Vfs</code> trait (§07) rather than twice for disk and memory. Everything under it is a narrow, single-purpose crate; everything below <em>that</em> is a path-dependency on the wider Androguard suite — <code class="inline">apk-patch</code> doesn't parse a ZIP, a DEX, or an AXML file itself, it composes crates that already do.</p>
+        </div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 900 400" role="img" aria-label="Layered architecture. apk-patch-cli sits on apk-patch-core, which orchestrates seven feature crates: meta, project, dex, framework, resources, sign, and vfs. The dex crate depends on the external dex-parser and dex-bytecode crates; the resources crate depends on axml-parser. Several crates also depend on apkparser for ZIP and signing primitives.">
+              <rect x="60" y="20" width="780" height="50" rx="9" fill="var(--surface)" stroke="var(--border)" stroke-width="1.4"/>
+              <text x="450" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">apk-patch-cli — clap CLI, Apktool-compatible commands &amp; flags</text>
+
+              <line x1="450" y1="70" x2="450" y2="98" stroke="var(--text-faint)" stroke-width="1.4"/>
+              <polygon points="450,102 445,94 455,94" fill="var(--text-faint)"/>
+
+              <rect x="60" y="104" width="780" height="50" rx="9" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.5"/>
+              <text x="450" y="134" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">apk-patch-core — decode / build orchestration, generic over Vfs</text>
+
+              <line x1="80" y1="174" x2="820" y2="174" stroke="var(--border)" stroke-width="1.4"/>
+              <line x1="450" y1="154" x2="450" y2="174" stroke="var(--border)" stroke-width="1.4"/>
+
+              <g font-size="10.5">
+                <!-- 7 feature boxes -->
+                <rect x="60" y="184" width="102" height="66" rx="7" fill="var(--domain-device-soft)" stroke="var(--domain-device)"/>
+                <text x="111" y="212" text-anchor="middle" font-weight="700" fill="var(--text)">meta</text>
+                <text x="111" y="228" text-anchor="middle" font-size="9" fill="var(--text-dim)">apkpatch.yml</text>
+                <line x1="111" y1="174" x2="111" y2="184" stroke="var(--border)"/>
+
+                <rect x="172" y="184" width="102" height="66" rx="7" fill="var(--domain-device-soft)" stroke="var(--domain-device)"/>
+                <text x="223" y="212" text-anchor="middle" font-weight="700" fill="var(--text)">project</text>
+                <text x="223" y="228" text-anchor="middle" font-size="9" fill="var(--text-dim)">layout, classify</text>
+                <line x1="223" y1="174" x2="223" y2="184" stroke="var(--border)"/>
+
+                <rect x="284" y="184" width="102" height="66" rx="7" fill="var(--domain-device-soft)" stroke="var(--domain-device)"/>
+                <text x="335" y="212" text-anchor="middle" font-weight="700" fill="var(--text)">dex</text>
+                <text x="335" y="228" text-anchor="middle" font-size="9" fill="var(--text-dim)">dex-txt (§04)</text>
+                <line x1="335" y1="174" x2="335" y2="184" stroke="var(--border)"/>
+
+                <rect x="396" y="184" width="102" height="66" rx="7" fill="var(--domain-device-soft)" stroke="var(--domain-device)"/>
+                <text x="447" y="212" text-anchor="middle" font-weight="700" fill="var(--text)">framework</text>
+                <text x="447" y="228" text-anchor="middle" font-size="9" fill="var(--text-dim)">install / cache</text>
+                <line x1="447" y1="174" x2="447" y2="184" stroke="var(--border)"/>
+
+                <rect x="508" y="184" width="102" height="66" rx="7" fill="var(--domain-device-soft)" stroke="var(--domain-device)"/>
+                <text x="559" y="212" text-anchor="middle" font-weight="700" fill="var(--text)">resources</text>
+                <text x="559" y="228" text-anchor="middle" font-size="9" fill="var(--text-dim)">ARSC (§06)</text>
+                <line x1="559" y1="174" x2="559" y2="184" stroke="var(--border)"/>
+
+                <rect x="620" y="184" width="102" height="66" rx="7" fill="var(--domain-device-soft)" stroke="var(--domain-device)"/>
+                <text x="671" y="212" text-anchor="middle" font-weight="700" fill="var(--text)">sign</text>
+                <text x="671" y="228" text-anchor="middle" font-size="9" fill="var(--text-dim)">v1/v2/v3</text>
+                <line x1="671" y1="174" x2="671" y2="184" stroke="var(--border)"/>
+
+                <rect x="732" y="184" width="108" height="66" rx="7" fill="var(--domain-host-soft)" stroke="var(--domain-host)"/>
+                <text x="786" y="212" text-anchor="middle" font-weight="700" fill="var(--text)">vfs</text>
+                <text x="786" y="228" text-anchor="middle" font-size="9" fill="var(--text-dim)">StdFs / MemVfs</text>
+                <line x1="786" y1="174" x2="786" y2="184" stroke="var(--border)"/>
+              </g>
+
+              <text x="60" y="264" class="fig-label" fill="var(--text-faint)" font-weight="600" letter-spacing=".5">SIBLING ANDROGUARD CRATES — path dependencies, not owned by this workspace</text>
+
+              <g font-size="10.5">
+                <rect x="60" y="288" width="180" height="60" rx="7" fill="none" stroke="var(--text-faint)" stroke-dasharray="4 4"/>
+                <text x="150" y="315" text-anchor="middle" font-weight="700" fill="var(--text)">apkparser</text>
+                <text x="150" y="331" text-anchor="middle" font-size="9" fill="var(--text-dim)">ZIP, manifest, split pkgs</text>
+
+                <rect x="260" y="288" width="180" height="60" rx="7" fill="none" stroke="var(--text-faint)" stroke-dasharray="4 4"/>
+                <text x="350" y="315" text-anchor="middle" font-weight="700" fill="var(--text)">axml-parser</text>
+                <text x="350" y="331" text-anchor="middle" font-size="9" fill="var(--text-dim)">AXML / ARSC codec</text>
+
+                <rect x="460" y="288" width="180" height="60" rx="7" fill="none" stroke="var(--text-faint)" stroke-dasharray="4 4"/>
+                <text x="550" y="315" text-anchor="middle" font-weight="700" fill="var(--text)">dex-parser</text>
+                <text x="550" y="331" text-anchor="middle" font-size="9" fill="var(--text-dim)">DEX parse + DexBuilder</text>
+
+                <rect x="660" y="288" width="180" height="60" rx="7" fill="none" stroke="var(--text-faint)" stroke-dasharray="4 4"/>
+                <text x="750" y="315" text-anchor="middle" font-weight="700" fill="var(--text)">dex-bytecode</text>
+                <text x="750" y="331" text-anchor="middle" font-size="9" fill="var(--text-dim)">insn decode / encode</text>
+              </g>
+
+              <path d="M335,250 C335,268 250,268 250,286" fill="none" stroke="var(--text-dim)" stroke-width="1.3" marker-end="url(#pa)"/>
+              <path d="M335,250 C335,268 550,268 550,286" fill="none" stroke="var(--text-dim)" stroke-width="1.3" marker-end="url(#pa)"/>
+              <path d="M335,250 C335,268 750,268 750,286" fill="none" stroke="var(--text-dim)" stroke-width="1.3" marker-end="url(#pa)"/>
+              <path d="M559,250 C559,268 350,268 350,286" fill="none" stroke="var(--text-dim)" stroke-width="1.3" marker-end="url(#pa)"/>
+
+              <text x="450" y="380" text-anchor="middle" class="fig-label" fill="var(--text-faint)">apk-patch-core, -project, -sign and -framework also depend on apkparser directly (ZIP read/write, signing, manifest parse) — omitted above for clarity.</text>
+            </svg>
+          </div>
+          <figcaption><b>Fig. 2 —</b> <code class="inline">dex</code> is the only feature crate that leans on two externals at once — it needs both the structural parser and the instruction encoder.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================= SECTION 3 ================= -->
+      <section id="s3">
+        <p class="kicker">03 — <code class="inline" style="font-size:.85em">decode_apk_vfs</code> <span class="tag host" style="margin-left:6px">decode</span></p>
+        <h2 class="htitle">Decode pipeline</h2>
+        <p class="subtitle">One pass over the ZIP's file list, dispatched by entry name — no separate "resource pass" or "dex pass".</p>
+
+        <div class="prose">
+          <p>A split container — <code class="inline">.xapk</code> or <code class="inline">.apkm</code> — is unwrapped first: the base APK's bytes are decoded exactly as a normal APK would be, and every other split member (a config-abi split, a language pack) is preserved byte-for-byte under <code class="inline">container/</code> so <code class="inline">build</code> can repack the whole set later. From there, <code class="inline">decode_apk_vfs</code> iterates <code class="inline">apk.get_files()</code> once and routes each entry by name (<b>fig. 3</b>) rather than scanning the archive multiple times.</p>
+          <p>Two decisions get made in that same pass, per-entry, from CLI flags: whether a <code class="inline">.dex</code> file gets disassembled to dex-txt at all (<code class="inline">should_disassemble_dex</code> — only <code class="inline">classes.dex</code> and <code class="inline">classesN.dex</code> by default, every root <code class="inline">.dex</code> under <code class="inline">-a</code>), and whether <code class="inline">res/</code> entries get decoded or kept as an exact-case raw ZIP (<code class="inline">original/res-raw.zip</code>) for a byte-identical rebuild fallback.</p>
+        </div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 900 500" role="img" aria-label="Decode routes every ZIP entry by name in one pass: dex files go to dex-txt emission, resources.arsc goes to ARSC decode, res XML and nine-patch PNGs are decoded or copied raw, AndroidManifest.xml is decoded to text, and everything else is classified into assets, lib, original, or unknown and copied. All branches converge into the project tree.">
+              <defs>
+                <marker id="p3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--domain-host)"/>
+                </marker>
+              </defs>
+              <rect x="330" y="16" width="240" height="46" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+              <text x="450" y="44" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--text)">app.apk / .xapk / .apkm</text>
+
+              <line x1="450" y1="62" x2="450" y2="82" stroke="var(--text-faint)"/>
+              <rect x="255" y="86" width="390" height="52" rx="8" fill="var(--domain-host-soft)" stroke="var(--domain-host)"/>
+              <text x="450" y="108" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--text)">split container? unwrap base APK,</text>
+              <text x="450" y="124" text-anchor="middle" font-size="11.5" fill="var(--text-dim)">preserve other members under container/</text>
+
+              <line x1="450" y1="138" x2="450" y2="158" stroke="var(--text-faint)"/>
+              <rect x="380" y="162" width="140" height="40" rx="20" fill="var(--surface)" stroke="var(--text-faint)"/>
+              <text x="450" y="187" text-anchor="middle" font-size="11" font-weight="600" fill="var(--text)">for each ZIP entry</text>
+
+              <!-- 5 branches -->
+              <g font-size="10.5">
+                <path d="M400,202 C300,220 140,230 100,254" fill="none" stroke="var(--domain-host)" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="10" y="258" width="180" height="66" rx="8" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)"/>
+                <text x="100" y="282" text-anchor="middle" font-weight="700" fill="var(--text)">*.dex</text>
+                <text x="100" y="298" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">dex-txt emit (§04)</text>
+
+                <path d="M420,202 C370,220 300,230 280,254" fill="none" stroke="var(--domain-host)" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="200" y="258" width="180" height="66" rx="8" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)"/>
+                <text x="290" y="282" text-anchor="middle" font-weight="700" fill="var(--text)">resources.arsc</text>
+                <text x="290" y="298" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">ARSC decode (§06)</text>
+
+                <path d="M450,202 C450,220 460,230 470,254" fill="none" stroke="var(--domain-host)" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="390" y="258" width="180" height="66" rx="8" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)"/>
+                <text x="480" y="278" text-anchor="middle" font-weight="700" fill="var(--text)">res/**/*.xml, 9-patch</text>
+                <text x="480" y="294" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">decode, or raw copy</text>
+                <text x="480" y="308" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">under --keep-broken-res</text>
+
+                <path d="M480,202 C540,220 630,230 660,254" fill="none" stroke="var(--domain-host)" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="580" y="258" width="170" height="66" rx="8" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)"/>
+                <text x="665" y="282" text-anchor="middle" font-weight="700" fill="var(--text)">AndroidManifest.xml</text>
+                <text x="665" y="298" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">AXML → text XML</text>
+
+                <path d="M500,202 C620,220 780,230 810,254" fill="none" stroke="var(--domain-host)" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="760" y="258" width="130" height="66" rx="8" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)"/>
+                <text x="825" y="278" text-anchor="middle" font-weight="700" fill="var(--text)">assets/, lib/,</text>
+                <text x="825" y="294" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">other → classify</text>
+                <text x="825" y="308" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">&amp; copy</text>
+              </g>
+
+              <path d="M100,324 C100,370 350,400 420,414" fill="none" stroke="var(--text-faint)" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M290,324 C290,370 380,400 430,414" fill="none" stroke="var(--text-faint)" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M480,324 C480,360 460,390 460,414" fill="none" stroke="var(--text-faint)" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M665,324 C665,370 550,400 490,414" fill="none" stroke="var(--text-faint)" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M825,324 C825,380 600,405 500,414" fill="none" stroke="var(--text-faint)" stroke-width="1.3" marker-end="url(#p3)"/>
+
+              <rect x="350" y="418" width="200" height="50" rx="9" fill="var(--surface)" stroke="var(--border)" stroke-width="1.4"/>
+              <text x="450" y="448" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--text)">project/ tree</text>
+            </svg>
+          </div>
+          <figcaption><b>Fig. 3 —</b> <code class="inline">apkpatch.yml</code> is assembled alongside this loop from the manifest's SDK/version fields and the resource package id, then written once the loop finishes.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================= SECTION 4 ================= -->
+      <section id="s4">
+        <p class="kicker">04 — <code class="inline" style="font-size:.85em">apk-patch-dex</code> <span class="tag agent" style="margin-left:6px">core / shared</span></p>
+        <h2 class="htitle">dex-txt: the format instead of smali</h2>
+        <p class="subtitle">Mnemonic-first, assemble-from-scratch, tied directly to <code class="inline">DexFile</code> / <code class="inline">ClassDef</code> / <code class="inline">CodeItem</code> rather than reimplementing a second bytecode language.</p>
+
+        <div class="prose">
+          <p>One <code class="inline">.dex.txt</code> file per class, named after its JVM descriptor path (<code class="inline">Lcom/example/MainActivity;</code> → <code class="inline">com/example/MainActivity.dex.txt</code>), under a directory keyed to which DEX it came from — <code class="inline">dex/</code> for <code class="inline">classes.dex</code>, <code class="inline">dex_classes2/</code> for <code class="inline">classes2.dex</code>, <code class="inline">dex_path@to@foo/</code> for a non-standard <code class="inline">path/to/foo.dex</code>. Deleting a file deletes the class; adding one adds it — there's no dependency on the original bytes surviving anywhere.</p>
+        </div>
+
+        <pre class="code">.method public onCreate(Landroid/os/Bundle;)V
+    .registers 4
+    .line 12
+    const/4 v0, 0
+    invoke-super {p0, p1}, Landroid/app/Activity;-&gt;onCreate(Landroid/os/Bundle;)V
+    return-void
+.end method</pre>
+        <div class="prose">
+          <p>Branch operands are labels (<code class="inline">goto :L_00000010</code>), never raw relative offsets — <code class="inline">:L_</code> plus the 8-digit hex of the original offset on decode, recomputed at assemble time so edits that change instruction count don't require hand-fixing jump targets. Trailing <code class="inline"># hex</code> is commentary only; a legacy hex-authoritative line format still parses for migration, but assemble always prefers the mnemonic form when both are present.</p>
+        </div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 820 560" role="img" aria-label="Assemble model: parse every dex-txt file into an AST, intern strings types protos fields and methods from declarations and instruction operands, run the register-type verifier, encode each method's labels and mnemonics to bytecode, have DexBuilder write a fresh DEX with pools and class data and a map list, then fix up checksums and the SHA-1 signature.">
+              <defs>
+                <marker id="p4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--domain-agent)"/>
+                </marker>
+              </defs>
+              <line x1="46" y1="48" x2="46" y2="528" stroke="var(--border)" stroke-width="2"/>
+              <g>
+                <circle cx="46" cy="62" r="17" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.6"/>
+                <text x="46" y="67" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-agent)">1</text>
+                <rect x="90" y="24" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="48" font-size="13.5" font-weight="700" fill="var(--text)">Parse every .dex.txt under each dex*/ dir</text>
+                <text x="108" y="68" font-size="11" fill="var(--text-dim)">one file = one class; the whole tree parses into an AST</text>
+                <text x="108" y="84" font-size="11" fill="var(--text-dim)">before any encoding starts.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="172" r="17" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.6"/>
+                <text x="46" y="177" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-agent)">2</text>
+                <rect x="90" y="134" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="158" font-size="13.5" font-weight="700" fill="var(--text)">Intern the constant pools</text>
+                <text x="108" y="178" font-size="11" fill="var(--text-dim)">strings / types / protos / fields / methods — from class and member</text>
+                <text x="108" y="194" font-size="11" fill="var(--text-dim)">declarations and from every instruction operand.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="282" r="17" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.6"/>
+                <text x="46" y="287" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-agent)">3</text>
+                <rect x="90" y="244" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="268" font-size="13.5" font-weight="700" fill="var(--text)">Verify, then encode each method</text>
+                <text x="108" y="288" font-size="11" fill="var(--text-dim)">register-type dataflow prover runs first; labels resolve to offsets,</text>
+                <text x="108" y="304" font-size="11" fill="var(--text-dim)">mnemonics + operands become Dalvik bytecode.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="392" r="17" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.6"/>
+                <text x="46" y="397" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-agent)">4</text>
+                <rect x="90" y="354" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="378" font-size="13.5" font-weight="700" fill="var(--text)">DexBuilder writes a fresh DEX</text>
+                <text x="108" y="398" font-size="11" fill="var(--text-dim)">string/type/proto/field/method pools, class_data, code_item,</text>
+                <text x="108" y="414" font-size="11" fill="var(--text-dim)">map_list — built from scratch, not patched in place.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="502" r="17" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.6"/>
+                <text x="46" y="507" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-agent)">5</text>
+                <rect x="90" y="464" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="488" font-size="13.5" font-weight="700" fill="var(--text)">Fix up checksum + SHA-1 signature</text>
+                <text x="108" y="508" font-size="11" fill="var(--text-dim)">valid .dex bytes come out; constant-pool indices are not stable</text>
+                <text x="108" y="524" font-size="11" fill="var(--text-dim)">across rebuilds, only program semantics are preserved.</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption><b>Fig. 4 —</b> the same pipeline runs on every <code class="inline">dex*/</code> directory in parallel during build (§05); a broken label, an out-of-range register, or a mismatched wide-pair fails at step 3, before any bytes are written.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================= SECTION 5 ================= -->
+      <section id="s5">
+        <p class="kicker">05 — <code class="inline" style="font-size:.85em">build_project_vfs</code> <span class="tag device" style="margin-left:6px">build</span></p>
+        <h2 class="htitle">Build pipeline</h2>
+        <p class="subtitle">Eight steps from a project directory to a signed APK — resource rebuild and dex assembly happen independently, then everything converges into one entry list.</p>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 820 900" role="img" aria-label="Build pipeline: load apkpatch.yml, patch AndroidManifest.xml for debuggable and net-sec-conf flags, rebuild resources.arsc with the pure Rust ARSC builder or fall back to the original, assemble every dex-txt directory in parallel, collect and deduplicate all entries, write intermediates to build/apk, pack the ZIP, then sign with v2 and v3 by default before writing to dist.">
+              <line x1="46" y1="48" x2="46" y2="878" stroke="var(--border)" stroke-width="2"/>
+              <g>
+                <circle cx="46" cy="62" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="67" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">1</text>
+                <rect x="90" y="24" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="48" font-size="13.5" font-weight="700" fill="var(--text)">Load apkpatch.yml</text>
+                <text x="108" y="68" font-size="11" fill="var(--text-dim)">SDK/version info, framework ids, doNotCompress — also accepts a</text>
+                <text x="108" y="84" font-size="11" fill="var(--text-dim)">legacy apktool.yml for 2.x project compatibility.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="172" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="177" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">2</text>
+                <rect x="90" y="134" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="158" font-size="13.5" font-weight="700" fill="var(--text)">Patch AndroidManifest.xml</text>
+                <text x="108" y="178" font-size="11" fill="var(--text-dim)">--debuggable, --net-sec-conf applied to the text manifest,</text>
+                <text x="108" y="194" font-size="11" fill="var(--text-dim)">written to build/AndroidManifest.xml (source stays untouched).</text>
+              </g>
+              <g>
+                <circle cx="46" cy="282" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="287" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">3</text>
+                <rect x="90" y="244" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="268" font-size="13.5" font-weight="700" fill="var(--text)">Rebuild resources.arsc</text>
+                <text x="108" y="288" font-size="11" fill="var(--text-dim)">pure-Rust ARSC builder from res/values*/ + public.xml (default);</text>
+                <text x="108" y="304" font-size="11" fill="var(--text-dim)">else original/resources.arsc + exact-case res-raw.zip (§06).</text>
+              </g>
+              <g>
+                <circle cx="46" cy="392" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="397" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">4</text>
+                <rect x="90" y="354" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="378" font-size="13.5" font-weight="700" fill="var(--text)">Assemble every dex*/ directory</text>
+                <text x="108" y="398" font-size="11" fill="var(--text-dim)">in parallel (-j), independently of the resource rebuild — each</text>
+                <text x="108" y="414" font-size="11" fill="var(--text-dim)">directory runs the full dex-txt pipeline from Fig. 4.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="502" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="507" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">5</text>
+                <rect x="90" y="464" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="488" font-size="13.5" font-weight="700" fill="var(--text)">Collect all entries</text>
+                <text x="108" y="508" font-size="11" fill="var(--text-dim)">assets, lib, original passthrough, unknown, resources, assembled</text>
+                <text x="108" y="524" font-size="11" fill="var(--text-dim)">dex — deduplicated by name into a HashMap, then sorted.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="612" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="617" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">6</text>
+                <rect x="90" y="574" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="598" font-size="13.5" font-weight="700" fill="var(--text)">Write intermediates to build/apk/</text>
+                <text x="108" y="618" font-size="11" fill="var(--text-dim)">every entry on disk (or in the VFS) exactly as it will be packed —</text>
+                <text x="108" y="634" font-size="11" fill="var(--text-dim)">stops here under --no-apk.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="722" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="727" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">7</text>
+                <rect x="90" y="684" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="708" font-size="13.5" font-weight="700" fill="var(--text)">Pack the ZIP</text>
+                <text x="108" y="728" font-size="11" fill="var(--text-dim)">ApkWriter honors doNotCompress per entry — the unsigned APK bytes</text>
+                <text x="108" y="744" font-size="11" fill="var(--text-dim)">exist in memory at this point regardless of VFS backend.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="832" r="17" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.6"/>
+                <text x="46" y="837" text-anchor="middle" font-size="13" font-weight="700" fill="var(--domain-device)">8</text>
+                <rect x="90" y="794" width="700" height="76" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+                <text x="108" y="818" font-size="13.5" font-weight="700" fill="var(--text)">Sign, then write to dist/</text>
+                <text x="108" y="838" font-size="11" fill="var(--text-dim)">v2 + v3 by default (v1 currently off — §06); --no-sign skips this</text>
+                <text x="108" y="854" font-size="11" fill="var(--text-dim)">and the APK will not install on a device with no certificate.</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption><b>Fig. 5 —</b> steps 3 and 4 don't depend on each other and run back-to-back rather than truly in parallel today, but neither depends on the other's output — only step 5's collection point needs both finished.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================= SECTION 6 ================= -->
+      <section id="s6">
+        <p class="kicker">06 — <code class="inline" style="font-size:.85em">apk-patch-resources</code> / <code class="inline" style="font-size:.85em">apk-patch-sign</code> <span class="tag agent" style="margin-left:6px">core / shared</span></p>
+        <h2 class="htitle">Resources &amp; signing</h2>
+
+        <h3>Pure-Rust ARSC builder</h3>
+        <div class="prose">
+          <p>Apktool rebuilds resources by shelling out to <code class="inline">aapt2 compile</code> + <code class="inline">link</code>. apk-patch's default path is a Rust ARSC encoder that reads <code class="inline">res/values*/</code>, <code class="inline">public.xml</code>, and the file-based resources already on disk, and writes <code class="inline">resources.arsc</code> directly — no external binary, no Android SDK required. <code class="inline">--use-aapt2</code> switches to the historical path when it's available (native builds only; a VFS/WASM build can never spawn a subprocess, so it always falls back to the Rust builder there regardless of the flag). Framework resolution — package id <code class="inline">1</code> is "the Android framework", same convention as Apktool — falls back to a minimal embedded <code class="inline">1.apk</code> when nothing has been installed via <code class="inline">install-framework</code>, so a fresh checkout can decode framework-dependent apps with zero setup.</p>
+        </div>
+
+        <h3>Signing</h3>
+        <div class="prose">
+          <p>Unlike Apktool, which leaves rebuilt APKs unsigned, apk-patch signs by default — a debug keystore is used unless <code class="inline">--ks</code> points at a release one. Three schemes are individually toggleable (<code class="inline">--v1-signing-enabled</code> / <code class="inline">--v2-…</code> / <code class="inline">--v3-…</code>), but the shipped default for <code class="inline">BuildSignConfig</code> only turns on <b>v2 and v3</b>:</p>
+        </div>
+        <div class="callout"><b>v1 is off by default in the current build</b> — the code comment in <code class="inline">apk-patch-sign</code> is explicit about why: "v1 PKCS#7 writer is still incomplete; v2+v3 are verified by apksigner and suffice for Android 7+ installs." An app targeting API &lt; 24 that needs a JAR-signature (v1) APK should pass <code class="inline">--v1-signing-enabled</code> explicitly and confirm the result with <code class="inline">apksigner verify</code> — the README's "signed by default (v1 + v2 + v3)" describes the intent, not (yet) the shipped default.</div>
+        <div class="prose">
+          <p>zipalign is not yet wired into the signing step (tracked as a Phase 4 item) — the current known limitation is that a zipalign pass on top of these ZIPs has previously corrupted them, so it stays disabled rather than shipping broken.</p>
+        </div>
+      </section>
+
+      <!-- ================= SECTION 7 ================= -->
+      <section id="s7">
+        <p class="kicker">07 — <code class="inline" style="font-size:.85em">apk-patch-vfs</code> <span class="tag host" style="margin-left:6px">shared seam</span></p>
+        <h2 class="htitle">One pipeline, two filesystems</h2>
+        <p class="subtitle">The CLI and a hypothetical browser/WASM embedding run <em>the same</em> <code class="inline">decode_apk_vfs</code> / <code class="inline">build_project_vfs</code> — only what's behind the <code class="inline">Vfs</code> trait changes.</p>
+
+        <div class="prose">
+          <p>Every decode/build code path in §03 and §05 is written once against <code class="inline">dyn Vfs</code> — <code class="inline">exists</code>, <code class="inline">read</code> / <code class="inline">write</code>, <code class="inline">create_dir_all</code>, <code class="inline">walk_files</code>, and a handful more. The path-based CLI entry points (<code class="inline">decode_apk</code>, <code class="inline">build_project</code>) are a thin wrapper that constructs a <code class="inline">StdFs</code> and delegates; the bytes-based convenience API (<code class="inline">decode_apk_bytes</code>, <code class="inline">build_project_bytes</code>, <code class="inline">inject_goauld_bytes</code>) constructs a <code class="inline">MemVfs</code> instead and never touches real disk. Cargo features keep the WASM build lean: <code class="inline">native-fs</code> (pulls in <code class="inline">StdFs</code> / walkdir), <code class="inline">parallel</code> (rayon), <code class="inline">aapt2</code> (subprocess spawning) and <code class="inline">goauld</code> (host agent path helpers) are all on by default and meant to be turned off with <code class="inline">--no-default-features</code> for a browser target — where signing also swaps to an embedded debug key, since <code class="inline">ring</code>/<code class="inline">rcgen</code> aren't available on <code class="inline">wasm32</code>.</p>
+        </div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 820 380" role="img" aria-label="The shared decode and build pipeline is written against a Vfs trait. StdFs implements it over real disk for the native path-based CLI; MemVfs implements it entirely in memory for the bytes-based API used by WASM and browser embedding.">
+              <defs>
+                <marker id="p7" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+                </marker>
+              </defs>
+              <rect x="210" y="26" width="400" height="70" rx="10" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.5"/>
+              <text x="410" y="54" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">decode_apk_vfs() / build_project_vfs()</text>
+              <text x="410" y="72" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">one pipeline, generic over &amp;mut dyn Vfs</text>
+
+              <path d="M410,96 L410,132" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#p7)"/>
+              <rect x="260" y="136" width="300" height="60" rx="9" fill="var(--surface)" stroke="var(--border)" stroke-width="1.4"/>
+              <text x="410" y="160" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--text)">trait Vfs</text>
+              <text x="410" y="178" text-anchor="middle" font-size="10" fill="var(--text-dim)">exists · read/write · create_dir_all · walk_files</text>
+
+              <path d="M330,196 C280,220 200,236 170,254" fill="none" stroke="var(--domain-host)" stroke-width="1.5" marker-end="url(#p7)"/>
+              <path d="M490,196 C560,220 640,236 670,254" fill="none" stroke="var(--domain-device)" stroke-width="1.5" marker-end="url(#p7)"/>
+
+              <rect x="60" y="258" width="280" height="94" rx="10" fill="var(--domain-host-soft)" stroke="var(--domain-host)" stroke-width="1.5"/>
+              <text x="200" y="284" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">StdFs</text>
+              <text x="200" y="304" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">native disk · walkdir</text>
+              <text x="200" y="320" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">decode_apk / build_project</text>
+              <text x="200" y="336" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">the CLI's path-based entry points</text>
+
+              <rect x="480" y="258" width="280" height="94" rx="10" fill="var(--domain-device-soft)" stroke="var(--domain-device)" stroke-width="1.5"/>
+              <text x="620" y="284" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">MemVfs</text>
+              <text x="620" y="304" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">in-memory, no real disk touched</text>
+              <text x="620" y="320" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">decode_apk_bytes / build_project_bytes</text>
+              <text x="620" y="336" text-anchor="middle" font-size="10.5" fill="var(--text-dim)">/ inject_goauld_bytes — WASM, browser</text>
+            </svg>
+          </div>
+          <figcaption><b>Fig. 6 —</b> nothing in §03 or §05 branches on which <code class="inline">Vfs</code> it's running against — a bug fixed for the CLI is fixed for the browser build in the same commit.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================= SECTION 8 ================= -->
+      <section id="s8">
+        <p class="kicker">08 — <code class="inline" style="font-size:.85em">inject_goauld</code> <span class="tag device" style="margin-left:6px">build</span></p>
+        <h2 class="htitle">inject-goauld: the bridge to arm_goauld</h2>
+        <p class="subtitle">A one-shot decode → mutate → build that packs <code class="inline">libgoauld_agent.so</code> into an app and wires up a loader — apk-patch's static counterpart to arm_goauld's runtime <code class="inline">ptrace</code> injection.</p>
+
+        <div class="prose">
+          <p>Where arm_goauld gets its agent into a <em>running</em> process by seizing it with <code class="inline">ptrace</code> and forcing a remote <code class="inline">dlopen</code>, <code class="inline">inject-goauld</code> gets the same <code class="inline">.so</code> into an app <em>before it ever runs</em>, by editing the APK itself. It composes three primitives this document has already covered: <code class="inline">decode_apk</code> (§03) to unpack, three targeted file mutations, and <code class="inline">build_project</code> (§05) to repack and sign.</p>
+        </div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 900 460" role="img" aria-label="inject-goauld decodes the target APK into a project, then makes three mutations: copies libgoauld_agent.so into lib/arm64-v8a, drops a prebuilt loader DEX at the next free classesN.dex slot, and patches the manifest to register an early-load ContentProvider plus doNotCompress for so files. It then builds the project into a new signed APK carrying the agent, which starts itself the moment the provider's class loader runs — the same ELF constructor bootstrap documented in arm_goauld Internals.">
+              <defs>
+                <marker id="p8" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--domain-device)"/>
+                </marker>
+              </defs>
+              <rect x="20" y="150" width="130" height="70" rx="9" fill="var(--surface)" stroke="var(--border)" stroke-width="1.4"/>
+              <text x="85" y="190" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">app.apk</text>
+
+              <path d="M152,185 L188,185" fill="none" stroke="var(--domain-host)" stroke-width="1.6" marker-end="url(#p8)"/>
+              <text x="170" y="172" text-anchor="middle" class="fig-label" fill="var(--domain-host)">decode</text>
+
+              <rect x="192" y="130" width="150" height="110" rx="10" fill="var(--domain-agent-soft)" stroke="var(--domain-agent)" stroke-width="1.5"/>
+              <text x="267" y="158" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">project/</text>
+              <text x="267" y="178" text-anchor="middle" font-size="10" fill="var(--text-dim)">decoded, editable</text>
+              <text x="267" y="196" text-anchor="middle" font-size="10" fill="var(--text-dim)">same tree as §03</text>
+
+              <path d="M344,185 L376,185" fill="none" stroke="var(--domain-device)" stroke-width="1.6" marker-end="url(#p8)"/>
+              <text x="360" y="172" text-anchor="middle" class="fig-label" fill="var(--domain-device)">mutate</text>
+
+              <rect x="380" y="60" width="330" height="270" rx="10" fill="var(--surface)" stroke="var(--domain-device)" stroke-width="1.5"/>
+              <text x="545" y="86" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--text)">apply_goauld_inject()</text>
+              <line x1="398" y1="98" x2="692" y2="98" stroke="var(--border)"/>
+              <text x="398" y="120" font-size="11" font-weight="600" fill="var(--text)">1 · copy libgoauld_agent.so</text>
+              <text x="398" y="136" font-size="10" fill="var(--text-dim)">→ lib/arm64-v8a/libgoauld_agent.so</text>
+              <text x="398" y="166" font-size="11" font-weight="600" fill="var(--text)">2 · drop the prebuilt loader DEX</text>
+              <text x="398" y="182" font-size="10" fill="var(--text-dim)">at the next free classesN.dex slot — raw</text>
+              <text x="398" y="196" font-size="10" fill="var(--text-dim)">bytes, not dex-txt (goauld.inject.LoaderProvider)</text>
+              <text x="398" y="226" font-size="11" font-weight="600" fill="var(--text)">3 · patch AndroidManifest.xml</text>
+              <text x="398" y="242" font-size="10" fill="var(--text-dim)">register the provider as android:initOrder</text>
+              <text x="398" y="256" font-size="10" fill="var(--text-dim)">early-load; add "so" to doNotCompress</text>
+              <text x="398" y="286" font-size="10" fill="var(--text-faint)">(same yml persisted via apk-patch-meta)</text>
+              <text x="398" y="312" font-size="10" fill="var(--text-faint)">--agent path, or $GOAULD_AGENT_SO, or</text>
+              <text x="398" y="326" font-size="10" fill="var(--text-faint)">../arm_goauld/dist/android-arm64/*.so</text>
+
+              <path d="M712,190 L748,190" fill="none" stroke="var(--domain-device)" stroke-width="1.6" marker-end="url(#p8)"/>
+              <text x="730" y="177" text-anchor="middle" class="fig-label" fill="var(--domain-device)">build</text>
+
+              <rect x="752" y="150" width="130" height="70" rx="9" fill="var(--surface)" stroke="var(--domain-device)" stroke-width="1.6"/>
+              <text x="817" y="180" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--text)">app-goauld.apk</text>
+              <text x="817" y="197" text-anchor="middle" font-size="9.5" fill="var(--domain-device)" font-weight="600">signed</text>
+
+              <line x1="20" y1="378" x2="882" y2="378" stroke="var(--border)" stroke-dasharray="4 4"/>
+              <text x="20" y="404" font-size="11.5" fill="var(--text-dim)">On the device, the provider's classloader triggers System.loadLibrary("goauld_agent") — from there it's the</text>
+              <text x="20" y="422" font-size="11.5" fill="var(--text-dim)">ELF-constructor bootstrap documented in arm_goauld Internals §07: the .so spawns its own thread and opens</text>
+              <text x="20" y="440" font-size="11.5" fill="var(--text-dim)">its listening socket — apk-patch's job ends the moment the APK is signed.</text>
+            </svg>
+          </div>
+          <figcaption><b>Fig. 7 —</b> arm64-v8a only — matches <code class="inline">arm_goauld</code>'s Android/AArch64 scope; the loader DEX is regenerated from <code class="inline">LoaderProvider.java</code> via <code class="inline">scripts/regen-goauld-loader.sh</code> when it needs to change.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ================= SECTION 9 ================= -->
+      <section id="s9">
+        <p class="kicker">09 — CLI</p>
+        <h2 class="htitle">Command reference</h2>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Command</th><th>Alias</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td class="mono-cell">decode</td><td class="mono-cell dim">d</td><td>APK / .xapk / .apkm → editable project (§03)</td></tr>
+              <tr><td class="mono-cell">build</td><td class="mono-cell dim">b</td><td>project → signed APK (§05)</td></tr>
+              <tr><td class="mono-cell">inject-goauld</td><td class="mono-cell dim">—</td><td>pack libgoauld_agent.so + loader, rebuild &amp; sign (§08)</td></tr>
+              <tr><td class="mono-cell">install-framework</td><td class="mono-cell dim">if</td><td>install a framework APK into the cache (package id resolution, §06)</td></tr>
+              <tr><td class="mono-cell">clean-frameworks</td><td class="mono-cell dim">cf</td><td>remove cached frameworks</td></tr>
+              <tr><td class="mono-cell">list-frameworks</td><td class="mono-cell dim">lf</td><td>list cached frameworks</td></tr>
+              <tr><td class="mono-cell">publicize-resources</td><td class="mono-cell dim">pr</td><td>set SPEC_PUBLIC on resources.arsc entries</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:14px; color:var(--text-dim); font-size:.9rem;">Full flag lists for <code class="inline">decode</code> and <code class="inline">build</code> are in the project <code class="inline">README.md</code>; the flags that change pipeline behaviour rather than just naming a path are called out inline in §03/§05/§06 above.</p>
+      </section>
+
+      <!-- ================= SECTION 10 ================= -->
+      <section id="s10">
+        <p class="kicker">10 — Reference point</p>
+        <h2 class="htitle">Parity with Apktool</h2>
+        <p class="subtitle">Deliberate differences, not gaps — everything else tracked in <code class="inline">docs/PARITY.md</code> is a checklist of matching behaviour.</p>
+        <div class="table-wrap">
+          <table class="ref">
+            <thead><tr><th>Feature</th><th>Apktool</th><th>apk-patch</th></tr></thead>
+            <tbody>
+              <tr><td>Code format</td><td class="dim">smali</td><td><b>dex-txt</b> (§04)</td></tr>
+              <tr><td>Code directories</td><td class="dim">smali/</td><td><b>dex/</b></td></tr>
+              <tr><td>Project metadata</td><td class="dim">apktool.yml</td><td><b>apkpatch.yml</b> (loads legacy apktool.yml)</td></tr>
+              <tr><td>Verifier</td><td class="dim">ClassPath + MethodAnalyzer</td><td><b>CFG register-type dataflow</b> (§04); <code class="inline">.registers</code> default, <code class="inline">.locals</code> accepted</td></tr>
+              <tr><td>Build signing</td><td class="dim">unsigned (manual)</td><td><b>signed by default</b> — v2+v3 today (§06)</td></tr>
+              <tr><td>Resource rebuild</td><td class="dim">aapt2</td><td><b>pure-Rust ARSC builder</b> (§06); aapt2 via <code class="inline">--use-aapt2</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:14px; color:var(--text-dim); font-size:.9rem;">Explicit non-goals: Java/Kotlin decompilation (use JADX), odex/deodex, an aapt1 build path, and smali syntax compatibility — dex-txt is intentionally a different, simpler format rather than a smali clone.</p>
+      </section>
+
+      <footer>
+        <p>Distilled from <code class="inline">README.md</code>, <code class="inline">docs/PLAN.md</code>, <code class="inline">docs/DEX-TXT.md</code>, <code class="inline">docs/DEX-TXT-GAPS.md</code>, <code class="inline">docs/PARITY.md</code> and the crate sources in <code class="inline">crates/*/src</code> at workspace version 0.1.0. Resource decode/encode, split-APK handling, and the register-type verifier are the fastest-moving parts of this codebase — check <code class="inline">docs/PARITY.md</code> directly for current status markers before relying on any ☐/◐/☑ detail not repeated here.</p>
+      </footer>
+
+    </main>
+  </div>
+</div>

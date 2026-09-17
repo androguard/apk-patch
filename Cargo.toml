@@ -10,6 +10,7 @@ members = [
     "crates/apk-patch-vfs",
     "crates/apk-patch-core",
     "crates/apk-patch-cli",
+    "crates/apk-patch-py",
 ]
 
 [workspace.package]

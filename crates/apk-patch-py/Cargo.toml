@@ -1,0 +1,18 @@
+[package]
+name = "apk-patch-py"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Python bindings for apk-patch (decode/build APK in memory)"
+
+[lib]
+name = "apk_patch"
+crate-type = ["cdylib"]
+
+[dependencies]
+apk-patch-core = { path = "../apk-patch-core", default-features = false, features = ["parallel"] }
+apk-patch-vfs = { path = "../apk-patch-vfs", default-features = false }
+pyo3 = { version = "0.22", features = ["extension-module"] }
+
+[build-system]
+# maturin reads pyproject.toml; this Cargo.toml is the crate root
