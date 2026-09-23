@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 560" role="img" aria-label="Assemble model: parse every dex-txt file into an AST, intern strings types protos fields and methods from declarations and instruction operands, run the register-type verifier, encode each method's labels and mnemonics to bytecode, have DexBuilder write a fresh DEX with pools and class data and a map list, then fix up checksums and the SHA-1 signature.">
+              <defs>
+                <marker id="p4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#4c7a3f"/>
+                </marker>
+              </defs>
+              <line x1="46" y1="48" x2="46" y2="528" stroke="#ddd0b0" stroke-width="2"/>
+              <g>
+                <circle cx="46" cy="62" r="17" fill="#dfebd6" stroke="#4c7a3f" stroke-width="1.6"/>
+                <text x="46" y="67" text-anchor="middle" font-size="13" font-weight="700" fill="#4c7a3f">1</text>
+                <rect x="90" y="24" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="48" font-size="13.5" font-weight="700" fill="#221c11">Parse every .dex.txt under each dex*/ dir</text>
+                <text x="108" y="68" font-size="11" fill="#6d6046">one file = one class; the whole tree parses into an AST</text>
+                <text x="108" y="84" font-size="11" fill="#6d6046">before any encoding starts.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="172" r="17" fill="#dfebd6" stroke="#4c7a3f" stroke-width="1.6"/>
+                <text x="46" y="177" text-anchor="middle" font-size="13" font-weight="700" fill="#4c7a3f">2</text>
+                <rect x="90" y="134" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="158" font-size="13.5" font-weight="700" fill="#221c11">Intern the constant pools</text>
+                <text x="108" y="178" font-size="11" fill="#6d6046">strings / types / protos / fields / methods — from class and member</text>
+                <text x="108" y="194" font-size="11" fill="#6d6046">declarations and from every instruction operand.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="282" r="17" fill="#dfebd6" stroke="#4c7a3f" stroke-width="1.6"/>
+                <text x="46" y="287" text-anchor="middle" font-size="13" font-weight="700" fill="#4c7a3f">3</text>
+                <rect x="90" y="244" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="268" font-size="13.5" font-weight="700" fill="#221c11">Verify, then encode each method</text>
+                <text x="108" y="288" font-size="11" fill="#6d6046">register-type dataflow prover runs first; labels resolve to offsets,</text>
+                <text x="108" y="304" font-size="11" fill="#6d6046">mnemonics + operands become Dalvik bytecode.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="392" r="17" fill="#dfebd6" stroke="#4c7a3f" stroke-width="1.6"/>
+                <text x="46" y="397" text-anchor="middle" font-size="13" font-weight="700" fill="#4c7a3f">4</text>
+                <rect x="90" y="354" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="378" font-size="13.5" font-weight="700" fill="#221c11">DexBuilder writes a fresh DEX</text>
+                <text x="108" y="398" font-size="11" fill="#6d6046">string/type/proto/field/method pools, class_data, code_item,</text>
+                <text x="108" y="414" font-size="11" fill="#6d6046">map_list — built from scratch, not patched in place.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="502" r="17" fill="#dfebd6" stroke="#4c7a3f" stroke-width="1.6"/>
+                <text x="46" y="507" text-anchor="middle" font-size="13" font-weight="700" fill="#4c7a3f">5</text>
+                <rect x="90" y="464" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="488" font-size="13.5" font-weight="700" fill="#221c11">Fix up checksum + SHA-1 signature</text>
+                <text x="108" y="508" font-size="11" fill="#6d6046">valid .dex bytes come out; constant-pool indices are not stable</text>
+                <text x="108" y="524" font-size="11" fill="#6d6046">across rebuilds, only program semantics are preserved.</text>
+              </g>
+            </svg>

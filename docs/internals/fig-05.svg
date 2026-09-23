@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 900" role="img" aria-label="Build pipeline: load apkpatch.yml, patch AndroidManifest.xml for debuggable and net-sec-conf flags, rebuild resources.arsc with the pure Rust ARSC builder or fall back to the original, assemble every dex-txt directory in parallel, collect and deduplicate all entries, write intermediates to build/apk, pack the ZIP, then sign with v2 and v3 by default before writing to dist.">
+              <line x1="46" y1="48" x2="46" y2="878" stroke="#ddd0b0" stroke-width="2"/>
+              <g>
+                <circle cx="46" cy="62" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="67" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">1</text>
+                <rect x="90" y="24" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="48" font-size="13.5" font-weight="700" fill="#221c11">Load apkpatch.yml</text>
+                <text x="108" y="68" font-size="11" fill="#6d6046">SDK/version info, framework ids, doNotCompress — also accepts a</text>
+                <text x="108" y="84" font-size="11" fill="#6d6046">legacy apktool.yml for 2.x project compatibility.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="172" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="177" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">2</text>
+                <rect x="90" y="134" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="158" font-size="13.5" font-weight="700" fill="#221c11">Patch AndroidManifest.xml</text>
+                <text x="108" y="178" font-size="11" fill="#6d6046">--debuggable, --net-sec-conf applied to the text manifest,</text>
+                <text x="108" y="194" font-size="11" fill="#6d6046">written to build/AndroidManifest.xml (source stays untouched).</text>
+              </g>
+              <g>
+                <circle cx="46" cy="282" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="287" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">3</text>
+                <rect x="90" y="244" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="268" font-size="13.5" font-weight="700" fill="#221c11">Rebuild resources.arsc</text>
+                <text x="108" y="288" font-size="11" fill="#6d6046">pure-Rust ARSC builder from res/values*/ + public.xml (default);</text>
+                <text x="108" y="304" font-size="11" fill="#6d6046">else original/resources.arsc + exact-case res-raw.zip (§06).</text>
+              </g>
+              <g>
+                <circle cx="46" cy="392" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="397" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">4</text>
+                <rect x="90" y="354" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="378" font-size="13.5" font-weight="700" fill="#221c11">Assemble every dex*/ directory</text>
+                <text x="108" y="398" font-size="11" fill="#6d6046">in parallel (-j), independently of the resource rebuild — each</text>
+                <text x="108" y="414" font-size="11" fill="#6d6046">directory runs the full dex-txt pipeline from Fig. 4.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="502" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="507" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">5</text>
+                <rect x="90" y="464" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="488" font-size="13.5" font-weight="700" fill="#221c11">Collect all entries</text>
+                <text x="108" y="508" font-size="11" fill="#6d6046">assets, lib, original passthrough, unknown, resources, assembled</text>
+                <text x="108" y="524" font-size="11" fill="#6d6046">dex — deduplicated by name into a HashMap, then sorted.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="612" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="617" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">6</text>
+                <rect x="90" y="574" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="598" font-size="13.5" font-weight="700" fill="#221c11">Write intermediates to build/apk/</text>
+                <text x="108" y="618" font-size="11" fill="#6d6046">every entry on disk (or in the VFS) exactly as it will be packed —</text>
+                <text x="108" y="634" font-size="11" fill="#6d6046">stops here under --no-apk.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="722" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="727" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">7</text>
+                <rect x="90" y="684" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="708" font-size="13.5" font-weight="700" fill="#221c11">Pack the ZIP</text>
+                <text x="108" y="728" font-size="11" fill="#6d6046">ApkWriter honors doNotCompress per entry — the unsigned APK bytes</text>
+                <text x="108" y="744" font-size="11" fill="#6d6046">exist in memory at this point regardless of VFS backend.</text>
+              </g>
+              <g>
+                <circle cx="46" cy="832" r="17" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.6"/>
+                <text x="46" y="837" text-anchor="middle" font-size="13" font-weight="700" fill="#a15c1f">8</text>
+                <rect x="90" y="794" width="700" height="76" rx="9" fill="#fffdf8" stroke="#ddd0b0"/>
+                <text x="108" y="818" font-size="13.5" font-weight="700" fill="#221c11">Sign, then write to dist/</text>
+                <text x="108" y="838" font-size="11" fill="#6d6046">v2 + v3 by default (v1 currently off — §06); --no-sign skips this</text>
+                <text x="108" y="854" font-size="11" fill="#6d6046">and the APK will not install on a device with no certificate.</text>
+              </g>
+            </svg>

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" role="img" aria-label="Decode routes every ZIP entry by name in one pass: dex files go to dex-txt emission, resources.arsc goes to ARSC decode, res XML and nine-patch PNGs are decoded or copied raw, AndroidManifest.xml is decoded to text, and everything else is classified into assets, lib, original, or unknown and copied. All branches converge into the project tree.">
+              <defs>
+                <marker id="p3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#33608f"/>
+                </marker>
+              </defs>
+              <rect x="330" y="16" width="240" height="46" rx="8" fill="#fffdf8" stroke="#ddd0b0"/>
+              <text x="450" y="44" text-anchor="middle" font-size="12.5" font-weight="700" fill="#221c11">app.apk / .xapk / .apkm</text>
+
+              <line x1="450" y1="62" x2="450" y2="82" stroke="#948569"/>
+              <rect x="255" y="86" width="390" height="52" rx="8" fill="#dce7f1" stroke="#33608f"/>
+              <text x="450" y="108" text-anchor="middle" font-size="11.5" font-weight="700" fill="#221c11">split container? unwrap base APK,</text>
+              <text x="450" y="124" text-anchor="middle" font-size="11.5" fill="#6d6046">preserve other members under container/</text>
+
+              <line x1="450" y1="138" x2="450" y2="158" stroke="#948569"/>
+              <rect x="380" y="162" width="140" height="40" rx="20" fill="#fffdf8" stroke="#948569"/>
+              <text x="450" y="187" text-anchor="middle" font-size="11" font-weight="600" fill="#221c11">for each ZIP entry</text>
+
+              <!-- 5 branches -->
+              <g font-size="10.5">
+                <path d="M400,202 C300,220 140,230 100,254" fill="none" stroke="#33608f" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="10" y="258" width="180" height="66" rx="8" fill="#dfebd6" stroke="#4c7a3f"/>
+                <text x="100" y="282" text-anchor="middle" font-weight="700" fill="#221c11">*.dex</text>
+                <text x="100" y="298" text-anchor="middle" font-size="9.5" fill="#6d6046">dex-txt emit (§04)</text>
+
+                <path d="M420,202 C370,220 300,230 280,254" fill="none" stroke="#33608f" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="200" y="258" width="180" height="66" rx="8" fill="#dfebd6" stroke="#4c7a3f"/>
+                <text x="290" y="282" text-anchor="middle" font-weight="700" fill="#221c11">resources.arsc</text>
+                <text x="290" y="298" text-anchor="middle" font-size="9.5" fill="#6d6046">ARSC decode (§06)</text>
+
+                <path d="M450,202 C450,220 460,230 470,254" fill="none" stroke="#33608f" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="390" y="258" width="180" height="66" rx="8" fill="#dfebd6" stroke="#4c7a3f"/>
+                <text x="480" y="278" text-anchor="middle" font-weight="700" fill="#221c11">res/**/*.xml, 9-patch</text>
+                <text x="480" y="294" text-anchor="middle" font-size="9.5" fill="#6d6046">decode, or raw copy</text>
+                <text x="480" y="308" text-anchor="middle" font-size="9.5" fill="#6d6046">under --keep-broken-res</text>
+
+                <path d="M480,202 C540,220 630,230 660,254" fill="none" stroke="#33608f" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="580" y="258" width="170" height="66" rx="8" fill="#dfebd6" stroke="#4c7a3f"/>
+                <text x="665" y="282" text-anchor="middle" font-weight="700" fill="#221c11">AndroidManifest.xml</text>
+                <text x="665" y="298" text-anchor="middle" font-size="9.5" fill="#6d6046">AXML → text XML</text>
+
+                <path d="M500,202 C620,220 780,230 810,254" fill="none" stroke="#33608f" stroke-width="1.4" marker-end="url(#p3)"/>
+                <rect x="760" y="258" width="130" height="66" rx="8" fill="#dfebd6" stroke="#4c7a3f"/>
+                <text x="825" y="278" text-anchor="middle" font-weight="700" fill="#221c11">assets/, lib/,</text>
+                <text x="825" y="294" text-anchor="middle" font-size="9.5" fill="#6d6046">other → classify</text>
+                <text x="825" y="308" text-anchor="middle" font-size="9.5" fill="#6d6046">&amp; copy</text>
+              </g>
+
+              <path d="M100,324 C100,370 350,400 420,414" fill="none" stroke="#948569" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M290,324 C290,370 380,400 430,414" fill="none" stroke="#948569" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M480,324 C480,360 460,390 460,414" fill="none" stroke="#948569" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M665,324 C665,370 550,400 490,414" fill="none" stroke="#948569" stroke-width="1.3" marker-end="url(#p3)"/>
+              <path d="M825,324 C825,380 600,405 500,414" fill="none" stroke="#948569" stroke-width="1.3" marker-end="url(#p3)"/>
+
+              <rect x="350" y="418" width="200" height="50" rx="9" fill="#fffdf8" stroke="#ddd0b0" stroke-width="1.4"/>
+              <text x="450" y="448" text-anchor="middle" font-size="12.5" font-weight="700" fill="#221c11">project/ tree</text>
+            </svg>

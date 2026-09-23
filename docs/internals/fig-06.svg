@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 380" role="img" aria-label="The shared decode and build pipeline is written against a Vfs trait. StdFs implements it over real disk for the native path-based CLI; MemVfs implements it entirely in memory for the bytes-based API used by WASM and browser embedding.">
+              <defs>
+                <marker id="p7" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+                </marker>
+              </defs>
+              <rect x="210" y="26" width="400" height="70" rx="10" fill="#dfebd6" stroke="#4c7a3f" stroke-width="1.5"/>
+              <text x="410" y="54" text-anchor="middle" font-size="13" font-weight="700" fill="#221c11">decode_apk_vfs() / build_project_vfs()</text>
+              <text x="410" y="72" text-anchor="middle" font-size="10.5" fill="#6d6046">one pipeline, generic over &amp;mut dyn Vfs</text>
+
+              <path d="M410,96 L410,132" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#p7)"/>
+              <rect x="260" y="136" width="300" height="60" rx="9" fill="#fffdf8" stroke="#ddd0b0" stroke-width="1.4"/>
+              <text x="410" y="160" text-anchor="middle" font-size="12.5" font-weight="700" fill="#221c11">trait Vfs</text>
+              <text x="410" y="178" text-anchor="middle" font-size="10" fill="#6d6046">exists · read/write · create_dir_all · walk_files</text>
+
+              <path d="M330,196 C280,220 200,236 170,254" fill="none" stroke="#33608f" stroke-width="1.5" marker-end="url(#p7)"/>
+              <path d="M490,196 C560,220 640,236 670,254" fill="none" stroke="#a15c1f" stroke-width="1.5" marker-end="url(#p7)"/>
+
+              <rect x="60" y="258" width="280" height="94" rx="10" fill="#dce7f1" stroke="#33608f" stroke-width="1.5"/>
+              <text x="200" y="284" text-anchor="middle" font-size="13" font-weight="700" fill="#221c11">StdFs</text>
+              <text x="200" y="304" text-anchor="middle" font-size="10.5" fill="#6d6046">native disk · walkdir</text>
+              <text x="200" y="320" text-anchor="middle" font-size="10.5" fill="#6d6046">decode_apk / build_project</text>
+              <text x="200" y="336" text-anchor="middle" font-size="10.5" fill="#6d6046">the CLI's path-based entry points</text>
+
+              <rect x="480" y="258" width="280" height="94" rx="10" fill="#f0dcb8" stroke="#a15c1f" stroke-width="1.5"/>
+              <text x="620" y="284" text-anchor="middle" font-size="13" font-weight="700" fill="#221c11">MemVfs</text>
+              <text x="620" y="304" text-anchor="middle" font-size="10.5" fill="#6d6046">in-memory, no real disk touched</text>
+              <text x="620" y="320" text-anchor="middle" font-size="10.5" fill="#6d6046">decode_apk_bytes / build_project_bytes</text>
+              <text x="620" y="336" text-anchor="middle" font-size="10.5" fill="#6d6046">/ inject_goauld_bytes — WASM, browser</text>
+            </svg>

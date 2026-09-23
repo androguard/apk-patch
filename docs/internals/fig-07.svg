@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 460" role="img" aria-label="inject-goauld decodes the target APK into a project, then makes three mutations: copies libgoauld_agent.so into lib/arm64-v8a, drops a prebuilt loader DEX at the next free classesN.dex slot, and patches the manifest to register an early-load ContentProvider plus doNotCompress for so files. It then builds the project into a new signed APK carrying the agent, which starts itself the moment the provider's class loader runs — the same ELF constructor bootstrap documented in arm_goauld Internals.">
+              <defs>
+                <marker id="p8" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#a15c1f"/>
+                </marker>
+              </defs>
+              <rect x="20" y="150" width="130" height="70" rx="9" fill="#fffdf8" stroke="#ddd0b0" stroke-width="1.4"/>
+              <text x="85" y="190" text-anchor="middle" font-size="13" font-weight="700" fill="#221c11">app.apk</text>
+
+              <path d="M152,185 L188,185" fill="none" stroke="#33608f" stroke-width="1.6" marker-end="url(#p8)"/>
+              <text x="170" y="172" text-anchor="middle" class="fig-label" fill="#33608f">decode</text>
+
+              <rect x="192" y="130" width="150" height="110" rx="10" fill="#dfebd6" stroke="#4c7a3f" stroke-width="1.5"/>
+              <text x="267" y="158" text-anchor="middle" font-size="13" font-weight="700" fill="#221c11">project/</text>
+              <text x="267" y="178" text-anchor="middle" font-size="10" fill="#6d6046">decoded, editable</text>
+              <text x="267" y="196" text-anchor="middle" font-size="10" fill="#6d6046">same tree as §03</text>
+
+              <path d="M344,185 L376,185" fill="none" stroke="#a15c1f" stroke-width="1.6" marker-end="url(#p8)"/>
+              <text x="360" y="172" text-anchor="middle" class="fig-label" fill="#a15c1f">mutate</text>
+
+              <rect x="380" y="60" width="330" height="270" rx="10" fill="#fffdf8" stroke="#a15c1f" stroke-width="1.5"/>
+              <text x="545" y="86" text-anchor="middle" font-size="12.5" font-weight="700" fill="#221c11">apply_goauld_inject()</text>
+              <line x1="398" y1="98" x2="692" y2="98" stroke="#ddd0b0"/>
+              <text x="398" y="120" font-size="11" font-weight="600" fill="#221c11">1 · copy libgoauld_agent.so</text>
+              <text x="398" y="136" font-size="10" fill="#6d6046">→ lib/arm64-v8a/libgoauld_agent.so</text>
+              <text x="398" y="166" font-size="11" font-weight="600" fill="#221c11">2 · drop the prebuilt loader DEX</text>
+              <text x="398" y="182" font-size="10" fill="#6d6046">at the next free classesN.dex slot — raw</text>
+              <text x="398" y="196" font-size="10" fill="#6d6046">bytes, not dex-txt (goauld.inject.LoaderProvider)</text>
+              <text x="398" y="226" font-size="11" font-weight="600" fill="#221c11">3 · patch AndroidManifest.xml</text>
+              <text x="398" y="242" font-size="10" fill="#6d6046">register the provider as android:initOrder</text>
+              <text x="398" y="256" font-size="10" fill="#6d6046">early-load; add "so" to doNotCompress</text>
+              <text x="398" y="286" font-size="10" fill="#948569">(same yml persisted via apk-patch-meta)</text>
+              <text x="398" y="312" font-size="10" fill="#948569">--agent path, or $GOAULD_AGENT_SO, or</text>
+              <text x="398" y="326" font-size="10" fill="#948569">../arm_goauld/dist/android-arm64/*.so</text>
+
+              <path d="M712,190 L748,190" fill="none" stroke="#a15c1f" stroke-width="1.6" marker-end="url(#p8)"/>
+              <text x="730" y="177" text-anchor="middle" class="fig-label" fill="#a15c1f">build</text>
+
+              <rect x="752" y="150" width="130" height="70" rx="9" fill="#fffdf8" stroke="#a15c1f" stroke-width="1.6"/>
+              <text x="817" y="180" text-anchor="middle" font-size="12.5" font-weight="700" fill="#221c11">app-goauld.apk</text>
+              <text x="817" y="197" text-anchor="middle" font-size="9.5" fill="#a15c1f" font-weight="600">signed</text>
+
+              <line x1="20" y1="378" x2="882" y2="378" stroke="#ddd0b0" stroke-dasharray="4 4"/>
+              <text x="20" y="404" font-size="11.5" fill="#6d6046">On the device, the provider's classloader triggers System.loadLibrary("goauld_agent") — from there it's the</text>
+              <text x="20" y="422" font-size="11.5" fill="#6d6046">ELF-constructor bootstrap documented in arm_goauld Internals §07: the .so spawns its own thread and opens</text>
+              <text x="20" y="440" font-size="11.5" fill="#6d6046">its listening socket — apk-patch's job ends the moment the APK is signed.</text>
+            </svg>
