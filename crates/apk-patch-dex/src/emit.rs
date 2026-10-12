@@ -59,10 +59,9 @@ pub fn emit_dex_to_dir(
                 .map(|class_def| {
                     let content = emit_class(&dex, class_def, &source, &resolver, include_debug)?;
                     let class_name = dex.get_type(class_def.class_idx)?;
-                    Ok(EmitJob {
-                        rel: class_descriptor_to_path(&class_name),
-                        content,
-                    })
+                    let rel = class_descriptor_to_path(&class_name)
+                        .map_err(DexError::Txt)?;
+                    Ok(EmitJob { rel, content })
                 })
                 .collect::<Result<Vec<_>>>()
         }
@@ -73,17 +72,16 @@ pub fn emit_dex_to_dir(
                 .map(|class_def| {
                     let content = emit_class(&dex, class_def, &source, &resolver, include_debug)?;
                     let class_name = dex.get_type(class_def.class_idx)?;
-                    Ok(EmitJob {
-                        rel: class_descriptor_to_path(&class_name),
-                        content,
-                    })
+                    let rel = class_descriptor_to_path(&class_name)
+                        .map_err(DexError::Txt)?;
+                    Ok(EmitJob { rel, content })
                 })
                 .collect::<Result<Vec<_>>>()
         }
     })?;
 
     for job in &jobs {
-        let out_path = output_dir.join(&job.rel);
+        let out_path = join_under_dir(output_dir, &job.rel)?;
         if let Some(parent) = out_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -121,10 +119,8 @@ pub fn emit_dex_to_vfs(
                 .map(|class_def| {
                     let content = emit_class(&dex, class_def, &source, &resolver, include_debug)?;
                     let class_name = dex.get_type(class_def.class_idx)?;
-                    Ok(EmitJob {
-                        rel: class_descriptor_to_path(&class_name),
-                        content,
-                    })
+                    let rel = class_descriptor_to_path(&class_name).map_err(DexError::Txt)?;
+                    Ok(EmitJob { rel, content })
                 })
                 .collect::<Result<Vec<_>>>()
         }
@@ -135,10 +131,8 @@ pub fn emit_dex_to_vfs(
                 .map(|class_def| {
                     let content = emit_class(&dex, class_def, &source, &resolver, include_debug)?;
                     let class_name = dex.get_type(class_def.class_idx)?;
-                    Ok(EmitJob {
-                        rel: class_descriptor_to_path(&class_name),
-                        content,
-                    })
+                    let rel = class_descriptor_to_path(&class_name).map_err(DexError::Txt)?;
+                    Ok(EmitJob { rel, content })
                 })
                 .collect::<Result<Vec<_>>>()
         }
@@ -146,7 +140,8 @@ pub fn emit_dex_to_vfs(
 
     for job in &jobs {
         let rel = job.rel.to_string_lossy().replace('\\', "/");
-        let out_path = apk_patch_vfs::join_vfs(output_dir, &rel);
+        let out_path =
+            apk_patch_vfs::join_under(output_dir, &rel).map_err(DexError::Txt)?;
         if let Some(parent) = apk_patch_vfs::parent_vfs(&out_path) {
             vfs.create_dir_all(&parent)
                 .map_err(|e| DexError::Txt(e.to_string()))?;
@@ -155,6 +150,45 @@ pub fn emit_dex_to_vfs(
             .map_err(|e| DexError::Txt(e.to_string()))?;
     }
     Ok(jobs.len())
+}
+
+fn join_under_dir(base: &Path, rel: &Path) -> Result<PathBuf> {
+    let rel_s = rel.to_string_lossy().replace('\\', "/");
+    let joined = apk_patch_vfs::join_under(&base.to_string_lossy(), &rel_s)
+        .map_err(DexError::Txt)?;
+    let out = PathBuf::from(&joined);
+    // Defense in depth: reject OS-level escape after joining.
+    let base_n = normalize_os_path(base).ok_or_else(|| {
+        DexError::Txt(format!("invalid output dir: {}", base.display()))
+    })?;
+    let out_n = normalize_os_path(&out).ok_or_else(|| {
+        DexError::Txt(format!("path escapes output dir: {joined}"))
+    })?;
+    if !out_n.starts_with(&base_n) {
+        return Err(DexError::Txt(format!(
+            "path escapes output dir: {joined}"
+        )));
+    }
+    Ok(out)
+}
+
+fn normalize_os_path(path: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push(Component::RootDir.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    return None;
+                }
+            }
+            Component::Normal(s) => out.push(s),
+        }
+    }
+    Some(out)
 }
 
 fn emit_class(

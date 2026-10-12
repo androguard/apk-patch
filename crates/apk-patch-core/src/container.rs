@@ -96,7 +96,7 @@ impl SplitPackage {
                 continue;
             }
             let bytes = self.zip.read_to_vec(&m.name).map_err(DecodeError::Apk)?;
-            let dest = root.join(safe_container_path(&m.name));
+            let dest = root.join(safe_container_path(&m.name)?);
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
@@ -104,7 +104,9 @@ impl SplitPackage {
         }
         // Also keep a copy of the original base for reference / fallback.
         let base_bytes = self.base_apk_bytes()?;
-        let base_dest = root.join("original_base").join(safe_container_path(&self.base_apk));
+        let base_dest = root
+            .join("original_base")
+            .join(safe_container_path(&self.base_apk)?);
         if let Some(parent) = base_dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -215,8 +217,8 @@ fn read_utf8_entry(zip: &ZipEntry, name: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn safe_container_path(name: &str) -> String {
-    name.trim_start_matches('/').replace('\\', "/")
+fn safe_container_path(name: &str) -> Result<String, DecodeError> {
+    apk_patch_vfs::sanitize_rel_path(name).map_err(DecodeError::Decode)
 }
 
 /// Patch `apkpatch.yml` after a base-APK decode to record the outer container.
@@ -271,7 +273,9 @@ pub fn pack_split_container(
                 .map_err(|e| BuildError::Build(e.to_string()))?;
             continue;
         }
-        let path = container_root.join(safe_container_path(&m.name));
+        let path = container_root.join(
+            safe_container_path(&m.name).map_err(|e| BuildError::Build(e.to_string()))?,
+        );
         if !path.is_file() {
             return Err(BuildError::Build(format!(
                 "missing container member {}",

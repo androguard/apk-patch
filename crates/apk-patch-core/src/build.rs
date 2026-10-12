@@ -407,7 +407,9 @@ pub fn build_project(project: &Path, options: &BuildOptions) -> Result<BuildResu
     );
     std::fs::create_dir_all(&build_apk_dir)?;
     for entry in &entries {
-        let dest = build_apk_dir.join(&entry.name);
+        let rel = apk_patch_vfs::sanitize_rel_path(&entry.name)
+            .map_err(|e| BuildError::Build(e))?;
+        let dest = build_apk_dir.join(&rel);
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }

@@ -83,14 +83,21 @@ pub fn list_dex_dirs_vfs(
     Ok(out)
 }
 
-pub fn class_descriptor_to_path(descriptor: &str) -> PathBuf {
+/// Map a Dalvik class descriptor to a relative dex-txt path.
+///
+/// Rejects path traversal (`..`, absolute, separators in segments).
+pub fn class_descriptor_to_path(descriptor: &str) -> Result<PathBuf, String> {
     let inner = descriptor
         .strip_prefix('L')
         .and_then(|s| s.strip_suffix(';'))
         .unwrap_or(descriptor);
-    let mut path = PathBuf::from(inner);
+    let sanitized = apk_patch_vfs::sanitize_rel_path(inner)?;
+    if sanitized.is_empty() {
+        return Err(format!("empty class path from descriptor: {descriptor}"));
+    }
+    let mut path = PathBuf::from(&sanitized);
     path.set_extension("dex.txt");
-    path
+    Ok(path)
 }
 
 pub fn path_to_class_descriptor(path: &Path) -> String {
@@ -124,11 +131,13 @@ mod tests {
     #[test]
     fn class_path_preserves_leading_l_in_name() {
         assert_eq!(
-            class_descriptor_to_path("LLoop;").to_string_lossy(),
+            class_descriptor_to_path("LLoop;").unwrap().to_string_lossy(),
             "Loop.dex.txt"
         );
         assert_eq!(
-            class_descriptor_to_path("Lcom/example/Foo;").to_string_lossy(),
+            class_descriptor_to_path("Lcom/example/Foo;")
+                .unwrap()
+                .to_string_lossy(),
             "com/example/Foo.dex.txt"
         );
         assert_eq!(
@@ -139,5 +148,12 @@ mod tests {
             path_to_class_descriptor(Path::new("com/example/Foo.dex.txt")),
             "Lcom/example/Foo;"
         );
+    }
+
+    #[test]
+    fn class_path_rejects_traversal() {
+        assert!(class_descriptor_to_path("L../../tmp/evil;").is_err());
+        assert!(class_descriptor_to_path("Lfoo/../../tmp/evil;").is_err());
+        assert!(class_descriptor_to_path("L../Evil;").is_err());
     }
 }

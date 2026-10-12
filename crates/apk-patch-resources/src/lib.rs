@@ -6,7 +6,7 @@ mod build_arsc;
 mod ninepatch;
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use axml_parser::{ARSCParser, AXMLPrinter, ArscBag, ArscResourceEntry};
 use thiserror::Error;
@@ -70,7 +70,9 @@ pub fn decode_resources_arsc(
 ) -> Result<DecodeResResult> {
     let (result, files) = decode_resources_arsc_files(arsc_bytes, options)?;
     for (rel, data) in files {
-        let path = output_dir.join(&rel);
+        let joined = apk_patch_vfs::join_under(&output_dir.to_string_lossy(), &rel)
+            .map_err(ResourceError::Resource)?;
+        let path = PathBuf::from(&joined);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -124,7 +126,7 @@ pub fn decode_resources_arsc_vfs(
 ) -> Result<DecodeResResult> {
     let (result, files) = decode_resources_arsc_files(arsc_bytes, options)?;
     for (rel, data) in files {
-        let path = apk_patch_vfs::join_vfs(output_dir, &rel);
+        let path = apk_patch_vfs::join_under(output_dir, &rel).map_err(ResourceError::Resource)?;
         if let Some(parent) = apk_patch_vfs::parent_vfs(&path) {
             vfs.create_dir_all(&parent)
                 .map_err(|e| ResourceError::Resource(e.to_string()))?;

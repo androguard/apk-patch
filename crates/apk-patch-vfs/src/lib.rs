@@ -4,12 +4,14 @@
 
 mod mem;
 mod pathutil;
+mod safe;
 
 #[cfg(feature = "native-fs")]
 mod stdfs;
 
 pub use mem::MemVfs;
 pub use pathutil::{join_vfs, normalize_vfs_path, parent_vfs, VfsPath};
+pub use safe::{is_safe_path_segment, join_under, sanitize_rel_path};
 
 #[cfg(feature = "native-fs")]
 pub use stdfs::StdFs;

@@ -200,8 +200,10 @@ pub fn decode_apk_vfs(
         count += 1;
 
         if name == "AndroidManifest.xml" {
-            let root_manifest =
-                project_path_vfs(output_dir, &DecodeTarget::Root("AndroidManifest.xml".into()));
+            let root_manifest = project_path_vfs(
+                output_dir,
+                &DecodeTarget::Root("AndroidManifest.xml".into()),
+            )?;
             if let Some(parent) = parent_vfs(&root_manifest) {
                 vfs.create_dir_all(&parent)
                     .map_err(|e| DecodeError::Decode(e.to_string()))?;

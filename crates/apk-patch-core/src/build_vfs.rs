@@ -262,7 +262,8 @@ pub fn build_project_vfs(
     vfs.create_dir_all(&build_apk_dir)
         .map_err(|e| BuildError::Build(e.to_string()))?;
     for entry in &entries {
-        let dest = join_vfs(&build_apk_dir, &entry.name);
+        let dest = apk_patch_vfs::join_under(&build_apk_dir, &entry.name)
+            .map_err(BuildError::Build)?;
         if let Some(parent) = parent_vfs(&dest) {
             vfs.create_dir_all(&parent)
                 .map_err(|e| BuildError::Build(e.to_string()))?;

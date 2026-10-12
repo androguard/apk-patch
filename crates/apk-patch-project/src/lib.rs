@@ -96,32 +96,88 @@ pub fn is_dex_entry(name: &str) -> bool {
     name.ends_with(".dex") && !name.contains('/')
 }
 
-pub fn project_path(root: &Path, target: &DecodeTarget) -> PathBuf {
-    match target {
-        DecodeTarget::Root(name) => root.join(name),
-        DecodeTarget::Res(rel) => root.join("res").join(rel),
-        DecodeTarget::Assets(rel) => root.join("assets").join(rel),
-        DecodeTarget::Lib(rel) => root.join("lib").join(rel),
-        DecodeTarget::Original(rel) => root.join("original").join(rel),
-        DecodeTarget::Unknown(rel) => root.join("unknown").join(rel),
-    }
+fn sanitize_project_rel(rel: &str) -> Result<String> {
+    apk_patch_vfs::sanitize_rel_path(rel).map_err(ProjectError::Project)
+}
+
+pub fn project_path(root: &Path, target: &DecodeTarget) -> Result<PathBuf> {
+    let path = match target {
+        DecodeTarget::Root(name) => root.join(sanitize_project_rel(name)?),
+        DecodeTarget::Res(rel) => root.join("res").join(sanitize_project_rel(rel)?),
+        DecodeTarget::Assets(rel) => root.join("assets").join(sanitize_project_rel(rel)?),
+        DecodeTarget::Lib(rel) => root.join("lib").join(sanitize_project_rel(rel)?),
+        DecodeTarget::Original(rel) => root.join("original").join(sanitize_project_rel(rel)?),
+        DecodeTarget::Unknown(rel) => root.join("unknown").join(sanitize_project_rel(rel)?),
+    };
+    ensure_path_under(root, &path)?;
+    Ok(path)
 }
 
 /// Logical VFS path for a decode target under `root` (slash-separated).
-pub fn project_path_vfs(root: &str, target: &DecodeTarget) -> String {
-    use apk_patch_vfs::join_vfs;
-    match target {
-        DecodeTarget::Root(name) => join_vfs(root, name),
-        DecodeTarget::Res(rel) => join_vfs(&join_vfs(root, "res"), rel),
-        DecodeTarget::Assets(rel) => join_vfs(&join_vfs(root, "assets"), rel),
-        DecodeTarget::Lib(rel) => join_vfs(&join_vfs(root, "lib"), rel),
-        DecodeTarget::Original(rel) => join_vfs(&join_vfs(root, "original"), rel),
-        DecodeTarget::Unknown(rel) => join_vfs(&join_vfs(root, "unknown"), rel),
+pub fn project_path_vfs(root: &str, target: &DecodeTarget) -> Result<String> {
+    use apk_patch_vfs::join_under;
+    let path = match target {
+        DecodeTarget::Root(name) => join_under(root, name),
+        DecodeTarget::Res(rel) => join_under(&join_under(root, "res").map_err(ProjectError::Project)?, rel),
+        DecodeTarget::Assets(rel) => {
+            join_under(&join_under(root, "assets").map_err(ProjectError::Project)?, rel)
+        }
+        DecodeTarget::Lib(rel) => {
+            join_under(&join_under(root, "lib").map_err(ProjectError::Project)?, rel)
+        }
+        DecodeTarget::Original(rel) => {
+            join_under(&join_under(root, "original").map_err(ProjectError::Project)?, rel)
+        }
+        DecodeTarget::Unknown(rel) => {
+            join_under(&join_under(root, "unknown").map_err(ProjectError::Project)?, rel)
+        }
+    }
+    .map_err(ProjectError::Project)?;
+    Ok(path)
+}
+
+/// Reject destinations that escape `root` after OS path normalization of `..`.
+fn ensure_path_under(root: &Path, candidate: &Path) -> Result<()> {
+    let root_n = normalize_os_path(root).ok_or_else(|| {
+        ProjectError::Project(format!("invalid project root: {}", root.display()))
+    })?;
+    let cand_n = normalize_os_path(candidate).ok_or_else(|| {
+        ProjectError::Project(format!(
+            "path escapes project root: {}",
+            candidate.display()
+        ))
+    })?;
+    if cand_n.starts_with(&root_n) {
+        Ok(())
+    } else {
+        Err(ProjectError::Project(format!(
+            "path escapes project root: {}",
+            candidate.display()
+        )))
     }
 }
 
+fn normalize_os_path(path: &Path) -> Option<PathBuf> {
+    use std::path::{Component, PathBuf};
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push(Component::RootDir.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    return None;
+                }
+            }
+            Component::Normal(s) => out.push(s),
+        }
+    }
+    Some(out)
+}
+
 pub fn write_entry(root: &Path, target: &DecodeTarget, data: &[u8]) -> Result<()> {
-    let path = project_path(root, target);
+    let path = project_path(root, target)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -135,7 +191,7 @@ pub fn write_entry_vfs(
     target: &DecodeTarget,
     data: &[u8],
 ) -> Result<()> {
-    let path = project_path_vfs(root, target);
+    let path = project_path_vfs(root, target)?;
     if let Some(parent) = apk_patch_vfs::parent_vfs(&path) {
         vfs.create_dir_all(&parent)
             .map_err(|e| ProjectError::Project(e.to_string()))?;
@@ -437,5 +493,16 @@ mod tests {
         assert_eq!(classify_entry("classes.dex"), EntryKind::Dex);
         assert_eq!(classify_entry("assets/foo.dat"), EntryKind::Asset);
         assert_eq!(classify_entry("META-INF/CERT.RSA"), EntryKind::Original);
+    }
+
+    #[test]
+    fn project_path_rejects_zip_slip() {
+        let root = Path::new("/tmp/apk-project");
+        assert!(project_path(root, &DecodeTarget::Assets("../../evil".into())).is_err());
+        assert!(project_path(root, &DecodeTarget::Res("../x".into())).is_err());
+        assert!(project_path(root, &DecodeTarget::Unknown("/etc/passwd".into())).is_err());
+        let ok = project_path(root, &DecodeTarget::Assets("foo/bar.bin".into())).unwrap();
+        assert!(ok.starts_with(root));
+        assert!(ok.ends_with("assets/foo/bar.bin") || ok.components().any(|c| c.as_os_str() == "bar.bin"));
     }
 }
